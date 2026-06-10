@@ -75,6 +75,7 @@ Pengguna dapat mendaftar melalui form frontend.
 - Form registrasi tersedia melalui shortcode atau page template WordPress.
 - User mengisi data dasar seperti nama, email, username, password.
 - User mengisi data tambahan sesuai field yang diatur admin.
+- Form registrasi dilindungi reCAPTCHA.
 - Sistem menyimpan data pendaftaran.
 - Sistem mengirim notifikasi bahwa pendaftaran berhasil dikirim.
 - Status awal pendaftaran adalah `pending`.
@@ -208,7 +209,7 @@ Minimal menyediakan shortcode:
 - File upload harus dibatasi tipe dan ukuran.
 - Field wilayah harus konsisten secara hierarki: kecamatan harus berasal dari kota/kabupaten yang dipilih, dan kota/kabupaten harus berasal dari provinsi yang dipilih.
 
-### 8.5 Data Wilayah Indonesia
+### 8.6 Data Wilayah Indonesia
 
 - Plugin mendukung data wilayah administratif Indonesia minimal level provinsi, kota/kabupaten, dan kecamatan.
 - Dataset wilayah dapat mengacu ke repositori `https://github.com/cahyadsn/wilayah`.
