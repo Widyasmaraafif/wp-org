@@ -2,6 +2,8 @@
 
 namespace WpOrg\Frontend;
 
+use Dompdf\Dompdf;
+use Dompdf\Options;
 use WpOrg\Support\MemberData;
 use WpOrg\Support\Regions;
 
@@ -54,10 +56,15 @@ class Profile
         $premium_reference = get_user_meta($user_id, 'wp_org_premium_reference', true);
         $proof_url = get_user_meta($user_id, 'wp_org_premium_proof_url', true);
         $member_card_settings = get_option('wp_org_member_card_settings', []);
-        $card_data = $premium_status === 'active' ? $this->get_member_card_asset($user_id) : null;
+        $card_view_mode = isset($_GET['member_card_view']) ? sanitize_key(wp_unslash($_GET['member_card_view'])) : '';
+        $card_data = $premium_status === 'active' ? $this->get_member_card_data($user_id) : null;
         $payment_banks = array_values(array_filter((array) get_option('wp_org_payment_banks', []), static function ($bank) {
             return !empty($bank['enabled']);
         }));
+
+        if ($active_tab === 'premium' && in_array($card_view_mode, ['pdf', 'download'], true) && $card_data) {
+            return $this->render_member_card_pdf_response($card_data, $card_view_mode === 'download');
+        }
 
         ob_start();
         echo '<div class="wp-org-card"><h2>Profil Anggota</h2>';
@@ -84,8 +91,13 @@ class Profile
                 echo '<div class="wp-org-member-card">';
                 echo '<h3>Kartu Anggota Premium</h3>';
                 echo '<p>Kartu anggota Anda sudah aktif dan dapat diunduh.</p>';
-                echo '<p><img src="' . esc_attr($card_data['data_uri']) . '" alt="Kartu anggota premium"></p>';
-                echo '<div class="wp-org-actions"><a class="wp-org-button" href="' . esc_attr($card_data['data_uri']) . '" download="' . esc_attr($card_data['filename']) . '">Download Kartu Anggota</a></div>';
+                echo '<div class="wp-org-member-card-preview-wrap" style="margin-top:16px">';
+                echo '<iframe src="' . esc_url($this->get_member_card_pdf_url()) . '" title="Preview kartu anggota premium" style="width:100%;height:760px;border:1px solid #d7e3ee;border-radius:20px;background:#fff"></iframe>';
+                echo '</div>';
+                echo '<div class="wp-org-member-card-actions">';
+                echo '<a class="wp-org-button" href="' . esc_url($this->get_member_card_pdf_url()) . '" target="_blank" rel="noopener">Preview PDF</a>';
+                echo '<a class="wp-org-button" href="' . esc_url($this->get_member_card_pdf_download_url()) . '">Download PDF</a>';
+                echo '</div>';
                 echo '</div>';
             }
 
@@ -222,7 +234,7 @@ class Profile
     /**
      * @return array<string, string>|null
      */
-    private function get_member_card_asset($user_id)
+    private function get_member_card_data($user_id)
     {
         $display_name = get_user_meta($user_id, 'wp_org_full_name', true);
         if (!$display_name) {
@@ -238,83 +250,158 @@ class Profile
             $issued_at = current_time('mysql');
         }
 
-        $svg = $this->build_member_card_svg([
+        return [
+            'organization_name' => sanitize_text_field($member_card_settings['organization_name'] ?? 'WP Org'),
+            'background_url' => esc_url_raw($member_card_settings['background_url'] ?? ''),
+            'logo_url' => esc_url_raw($member_card_settings['logo_url'] ?? ''),
             'name' => $display_name,
             'number' => $member_number,
             'region' => $region ?: 'Indonesia',
             'issued_at' => mysql2date('d M Y', $issued_at),
-            'organization_name' => sanitize_text_field($member_card_settings['organization_name'] ?? 'WP Org'),
-            'background_url' => esc_url_raw($member_card_settings['background_url'] ?? ''),
-            'logo_url' => esc_url_raw($member_card_settings['logo_url'] ?? ''),
-        ]);
-
-        return [
-            'data_uri' => 'data:image/svg+xml;base64,' . base64_encode($svg),
-            'filename' => 'kartu-anggota-' . strtolower(sanitize_title($display_name ?: (string) $user_id)) . '.svg',
+            'filename' => 'kartu-anggota-' . strtolower(sanitize_title($display_name ?: (string) $user_id)) . '.pdf',
         ];
     }
 
     /**
      * @param array<string, string> $data
      */
-    private function build_member_card_svg($data)
+    private function render_member_card_preview($data)
     {
-        $name = $this->escape_svg_text($data['name']);
-        $number = $this->escape_svg_text($data['number']);
-        $region = $this->escape_svg_text($data['region']);
-        $issued_at = $this->escape_svg_text($data['issued_at']);
-        $organization_name = $this->escape_svg_text($data['organization_name']);
+        $background_style = '';
+        if (!empty($data['background_url'])) {
+            $background_style = 'style="background-image:url(' . esc_url($data['background_url']) . ');"';
+        }
+
+        $logo = '';
+        if (!empty($data['logo_url'])) {
+            $logo = '<img class="wp-org-member-card-logo" src="' . esc_url($data['logo_url']) . '" alt="Logo organisasi">';
+        }
+
+        return '<div class="wp-org-member-card-preview" ' . $background_style . '>'
+            . '<div class="wp-org-member-card-bg"></div>'
+            . '<div class="wp-org-member-card-inner">'
+            . $logo
+            . '<div class="wp-org-member-card-copy">'
+            . '<p class="wp-org-member-card-org">' . esc_html($data['organization_name']) . '</p>'
+            . '<h3 class="wp-org-member-card-title">Kartu Anggota Premium</h3>'
+            . '<div class="wp-org-member-card-grid">'
+            . '<div>'
+            . '<div class="wp-org-member-card-meta-label">Nomor Anggota</div>'
+            . '<div class="wp-org-member-card-number">' . esc_html($data['number']) . '</div>'
+            . '<div class="wp-org-member-card-meta-label" style="margin-top:18px">Nama Anggota</div>'
+            . '<div class="wp-org-member-card-name">' . esc_html($data['name']) . '</div>'
+            . '<div class="wp-org-member-card-meta-label" style="margin-top:18px">Wilayah</div>'
+            . '<div class="wp-org-member-card-region">' . esc_html($data['region']) . '</div>'
+            . '</div>'
+            . '<div class="wp-org-member-card-meta">'
+            . '<div class="wp-org-member-card-meta-label">Berlaku Sejak</div>'
+            . '<div class="wp-org-member-card-meta-value">' . esc_html($data['issued_at']) . '</div>'
+            . '<div class="wp-org-member-card-meta-label" style="margin-top:16px">Status</div>'
+            . '<div class="wp-org-member-card-meta-value">AKTIF</div>'
+            . '</div>'
+            . '</div>'
+            . '</div>'
+            . '</div>'
+            . '</div>';
+    }
+
+    private function render_member_card_print_view($data)
+    {
+        $this->render_member_card_pdf_response($data, false);
+    }
+
+    private function render_member_card_pdf_response($data, $download = false)
+    {
+        if (!class_exists(Dompdf::class)) {
+            wp_die('Dompdf belum tersedia.');
+        }
+
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+
+        nocache_headers();
+
+        $filename = !empty($data['filename']) ? $data['filename'] : 'kartu-anggota.pdf';
+        $options = new Options();
+        $options->set('isRemoteEnabled', true);
+        $options->set('isHtml5ParserEnabled', true);
+
+        $dompdf = new Dompdf($options);
+        $dompdf->loadHtml($this->render_member_card_pdf_html($data), 'UTF-8');
+        $dompdf->setPaper([0, 0, 242.64, 152.74], 'landscape');
+        $dompdf->render();
+
+        $pdf = $dompdf->output();
+        header('Content-Type: application/pdf');
+        header('Content-Length: ' . strlen($pdf));
+        header('Content-Disposition: ' . ($download ? 'attachment' : 'inline') . '; filename="' . $filename . '"');
+        echo $pdf;
+        exit;
+    }
+
+    private function render_member_card_pdf_html($data)
+    {
         $background_data_uri = $this->get_local_image_data_uri($data['background_url'] ?? '');
         $logo_data_uri = $this->get_local_image_data_uri($data['logo_url'] ?? '');
-        $background_markup = $background_data_uri !== '' ? '<image href="' . $this->escape_svg_attr($background_data_uri) . '" x="0" y="0" width="1080" height="680" preserveAspectRatio="xMidYMid slice" opacity="0.28"/>' : '';
-        $logo_markup = $logo_data_uri !== '' ? '<image href="' . $this->escape_svg_attr($logo_data_uri) . '" x="858" y="78" width="140" height="140" preserveAspectRatio="xMidYMid meet"/>' : '';
 
-        return <<<SVG
-<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="680" viewBox="0 0 1080 680">
-  <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0f3d5e" />
-      <stop offset="55%" stop-color="#135e96" />
-      <stop offset="100%" stop-color="#5ea3d6" />
-    </linearGradient>
-    <linearGradient id="panel" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.18" />
-      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.06" />
-    </linearGradient>
-  </defs>
-  <rect width="1080" height="680" rx="36" fill="url(#bg)"/>
-  {$background_markup}
-  <circle cx="920" cy="120" r="150" fill="#ffffff" fill-opacity="0.08"/>
-  <circle cx="180" cy="580" r="200" fill="#ffffff" fill-opacity="0.06"/>
-  <rect x="48" y="48" width="984" height="584" rx="30" fill="url(#panel)" stroke="#ffffff" stroke-opacity="0.2"/>
-  <text x="84" y="120" fill="#d8efff" font-size="28" font-family="Arial, sans-serif" letter-spacing="4">{$organization_name}</text>
-  {$logo_markup}
-  <text x="84" y="184" fill="#ffffff" font-size="62" font-family="Arial, sans-serif" font-weight="700">KARTU ANGGOTA PREMIUM</text>
-  <text x="84" y="258" fill="#d7ebfb" font-size="24" font-family="Arial, sans-serif">Nomor Anggota</text>
-  <text x="84" y="304" fill="#ffffff" font-size="40" font-family="Arial, sans-serif" font-weight="700">{$number}</text>
-  <text x="84" y="390" fill="#d7ebfb" font-size="24" font-family="Arial, sans-serif">Nama Anggota</text>
-  <text x="84" y="446" fill="#ffffff" font-size="48" font-family="Arial, sans-serif" font-weight="700">{$name}</text>
-  <text x="84" y="522" fill="#d7ebfb" font-size="24" font-family="Arial, sans-serif">Wilayah</text>
-  <text x="84" y="564" fill="#ffffff" font-size="30" font-family="Arial, sans-serif">{$region}</text>
-  <rect x="760" y="430" width="220" height="120" rx="24" fill="#ffffff" fill-opacity="0.16"/>
-  <text x="790" y="476" fill="#d7ebfb" font-size="20" font-family="Arial, sans-serif">Berlaku Sejak</text>
-  <text x="790" y="520" fill="#ffffff" font-size="32" font-family="Arial, sans-serif" font-weight="700">{$issued_at}</text>
-  <text x="790" y="584" fill="#d7ebfb" font-size="18" font-family="Arial, sans-serif">Status: AKTIF</text>
-</svg>
-SVG;
+        $background_style = $background_data_uri !== '' ? 'background-image:url(' . $background_data_uri . ');' : '';
+        $logo = $logo_data_uri !== '' ? '<img class="logo" src="' . $logo_data_uri . '" alt="Logo organisasi">' : '';
+
+        return '<!doctype html><html><head><meta charset="UTF-8"><style>'
+            . '@page{size:85.6mm 53.98mm;margin:0}body{margin:0;font-family:DejaVu Sans,Arial,sans-serif}'
+            . '.card{position:relative;width:85.6mm;height:53.98mm;overflow:hidden;color:#fff;background:linear-gradient(135deg,#0f3d5e,#135e96)}'
+            . '.bg{position:absolute;inset:0;background-size:cover;background-position:center;opacity:.22;' . $background_style . '}'
+            . '.overlay{position:absolute;inset:0;background:rgba(0,0,0,.42)}'
+            . '.inner{position:relative;display:flex;gap:3mm;padding:3mm 3.5mm;width:100%;height:100%;box-sizing:border-box;overflow:hidden}'
+            . '.logo{width:9mm;height:9mm;object-fit:contain;background:rgba(255,255,255,.12);border-radius:1.6mm;padding:1.2mm;flex:0 0 auto}'
+            . '.copy{flex:1}'
+            . '.org{margin:0 0 1mm;font-size:5.5pt;letter-spacing:.8px;text-transform:uppercase;opacity:.9}'
+            . '.title{margin:0 0 1.5mm;font-size:9.5pt;font-weight:700;letter-spacing:.1px;line-height:1.02}'
+            . '.grid{display:grid;grid-template-columns:minmax(0,1fr) 19mm;gap:1.5mm;align-items:end;min-width:0}'
+            . '.label{font-size:4pt;line-height:1.1;opacity:.8;text-transform:uppercase;letter-spacing:.4px}'
+            . '.number{font-size:7pt;font-weight:700;margin-top:.8mm;line-height:1.1}'
+            . '.name{font-size:8.5pt;font-weight:700;line-height:1.05;margin-top:.8mm;word-break:break-word}'
+            . '.region{font-size:6pt;line-height:1.15;margin-top:.8mm;word-break:break-word}'
+            . '.meta{background:rgba(255,255,255,.16);border-radius:2.2mm;padding:1.8mm;align-self:end;min-width:0}'
+            . '.meta-value{font-size:6pt;font-weight:700;margin-top:.8mm;line-height:1.1;word-break:break-word}'
+            . '</style></head><body><div class="card"><div class="bg"></div><div class="overlay"></div><div class="inner">'
+            . $logo
+            . '<div class="copy">'
+            . '<p class="org">' . esc_html($data['organization_name']) . '</p>'
+            . '<div class="grid"><div>'
+            . '<div class="number">' . esc_html($data['number']) . '</div>'
+            . '<div class="name">' . esc_html($data['name']) . '</div>'
+            . '<div class="region">' . esc_html($data['region']) . '</div>'
+            . '</div><div class="meta">'
+            . '<div class="label">Berlaku Sejak</div><div class="meta-value">' . esc_html($data['issued_at']) . '</div>'
+            . '<div class="label" style="margin-top:16px">Status</div><div class="meta-value">AKTIF</div>'
+            . '</div></div></div></div></div></body></html>';
     }
 
-    private function escape_svg_text($value)
+    private function get_member_card_pdf_url()
     {
-        return htmlspecialchars($value, ENT_QUOTES | ENT_XML1, 'UTF-8');
+        return add_query_arg([
+            'profile_tab' => 'premium',
+            'member_card_view' => 'pdf',
+        ], $this->get_current_profile_url());
     }
 
-    private function escape_svg_attr($value)
+    private function get_member_card_pdf_download_url()
     {
-        return htmlspecialchars($value, ENT_QUOTES | ENT_XML1, 'UTF-8');
+        return add_query_arg([
+            'profile_tab' => 'premium',
+            'member_card_view' => 'download',
+        ], $this->get_current_profile_url());
     }
 
-    private function get_local_image_data_uri($url)
+    private function get_current_profile_url()
+    {
+        $request_uri = isset($_SERVER['REQUEST_URI']) ? wp_unslash($_SERVER['REQUEST_URI']) : '';
+        return $request_uri !== '' ? home_url($request_uri) : home_url('/profile-org/');
+    }
+
+    private function get_local_image_path($url)
     {
         $url = esc_url_raw((string) $url);
         if ($url === '') {
@@ -322,32 +409,37 @@ SVG;
         }
 
         $attachment_id = attachment_url_to_postid($url);
-        $path = '';
-
         if ($attachment_id) {
             $path = get_attached_file($attachment_id);
-        }
-
-        if (!$path) {
-            $uploads = wp_get_upload_dir();
-            if (!empty($uploads['baseurl']) && !empty($uploads['basedir']) && strpos($url, $uploads['baseurl']) === 0) {
-                $relative_path = ltrim(substr($url, strlen($uploads['baseurl'])), '/');
-                $path = trailingslashit($uploads['basedir']) . str_replace('/', DIRECTORY_SEPARATOR, $relative_path);
+            if ($path) {
+                return $path;
             }
         }
 
+        $uploads = wp_get_upload_dir();
+        if (!empty($uploads['baseurl']) && !empty($uploads['basedir']) && strpos($url, $uploads['baseurl']) === 0) {
+            $relative_path = ltrim(substr($url, strlen($uploads['baseurl'])), '/');
+            return trailingslashit($uploads['basedir']) . str_replace('/', DIRECTORY_SEPARATOR, $relative_path);
+        }
+
+        return '';
+    }
+
+    private function get_local_image_data_uri($url)
+    {
+        $path = $this->get_local_image_path($url);
         if (!$path || !file_exists($path)) {
+            return '';
+        }
+
+        $contents = @file_get_contents($path);
+        if ($contents === false) {
             return '';
         }
 
         $mime = wp_check_filetype($path);
         $type = !empty($mime['type']) ? $mime['type'] : mime_content_type($path);
         if (!$type) {
-            return '';
-        }
-
-        $contents = file_get_contents($path);
-        if ($contents === false) {
             return '';
         }
 
@@ -391,7 +483,7 @@ SVG;
             }
             $html .= '<input id="' . esc_attr($key) . '" name="' . esc_attr($key) . '" type="file"' . $required . '>';
         } elseif ($field['type'] === 'region_province') {
-            $html .= '<select id="' . esc_attr($key) . '" class="wp-org-province" name="' . esc_attr($key) . '"' . $required . '><option value="">Pilih provinsi</option>';
+            $html .= '<select id="' . esc_attr($key) . '" class="wp-org-province" name="' . esc_attr($key) . '" data-selected="' . esc_attr((string) $value) . '"' . $required . '><option value="">Pilih provinsi</option>';
             foreach ($regions->get_provinces() as $province) {
                 $html .= '<option value="' . esc_attr($province['code']) . '"' . selected($value, $province['code'], false) . '>' . esc_html($province['name']) . '</option>';
             }

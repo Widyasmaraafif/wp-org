@@ -13,13 +13,28 @@ class MemberData
         }
 
         $normalized = [];
+        $has_member_photo = false;
 
         foreach ($fields as $field) {
             $prepared = self::normalize_field($field);
 
             if ($prepared) {
+                if ($prepared['key'] === 'member_photo') {
+                    $has_member_photo = true;
+                }
                 $normalized[] = $prepared;
             }
+        }
+
+        if (!$has_member_photo) {
+            array_unshift($normalized, [
+                'key' => 'member_photo',
+                'label' => 'Foto Anggota',
+                'type' => 'image',
+                'required' => 0,
+                'enabled' => 1,
+                'options' => '',
+            ]);
         }
 
         return array_values($normalized);

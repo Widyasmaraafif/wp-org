@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Plugin Name: WP Org
+ * Plugin Name: Velocity Organisasi
  * Description: Plugin manajemen organisasi untuk login, register, anggota, dan pendaftaran.
  * Version: 0.1.0
  * Author: Velocitydeveloper
@@ -15,6 +15,11 @@ if (!defined('ABSPATH')) {
 define('WP_ORG_VERSION', '0.1.0');
 define('WP_ORG_PATH', plugin_dir_path(__FILE__));
 define('WP_ORG_URL', plugin_dir_url(__FILE__));
+
+$composer_autoload = WP_ORG_PATH . 'vendor/autoload.php';
+if (file_exists($composer_autoload)) {
+    require_once $composer_autoload;
+}
 
 spl_autoload_register(function ($class) {
     $prefix = 'WpOrg\\';
