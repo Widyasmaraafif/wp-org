@@ -59,13 +59,12 @@ class MemberData
     public static function get_status($user_id)
     {
         $status = get_user_meta($user_id, 'wp_org_status', true);
-
-        return $status ? $status : 'pending';
+        return self::normalize_status($status);
     }
 
     public static function update_status($user_id, $status)
     {
-        update_user_meta($user_id, 'wp_org_status', $status);
+        update_user_meta($user_id, 'wp_org_status', self::normalize_status($status));
     }
 
     public static function get_premium_statuses()
@@ -280,6 +279,25 @@ class MemberData
     public static function is_upload_field($field)
     {
         return in_array($field['type'], ['image', 'file'], true);
+    }
+
+    public static function normalize_status($status)
+    {
+        $status = sanitize_key((string) $status);
+
+        if (in_array($status, ['approved', 'approve', 'aprove'], true)) {
+            return 'approved';
+        }
+
+        if (in_array($status, ['rejected', 'reject'], true)) {
+            return 'rejected';
+        }
+
+        if ($status === 'pending' || $status === '') {
+            return 'pending';
+        }
+
+        return 'pending';
     }
 
     private static function handle_upload_field($key)

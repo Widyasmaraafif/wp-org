@@ -72,6 +72,8 @@ class Auth
             return $this->render_notice('Anda sudah login. <a href="' . esc_url(add_query_arg('wp_org_logout', '1')) . '">Logout</a>', 'success');
         }
 
+        $captcha = new Captcha();
+
         ob_start();
         echo '<div class="wp-org-card">';
         echo '<h2>Login Anggota</h2>';
@@ -80,6 +82,7 @@ class Auth
         wp_nonce_field('wp_org_login_action', 'wp_org_login_nonce');
         echo $this->render_field('Username atau Email', 'log', 'text', true, false);
         echo $this->render_field('Password', 'pwd', 'password', true, false);
+        echo $captcha->render('org_login');
         echo '<div class="wp-org-actions"><button class="wp-org-button" type="submit" name="wp_org_login_submit" value="1">Login</button></div>';
         echo '</form></div>';
 
@@ -133,6 +136,13 @@ class Auth
     {
         if (!isset($_POST['wp_org_login_nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['wp_org_login_nonce'])), 'wp_org_login_action')) {
             $this->set_flash('error', 'Permintaan login tidak valid.');
+            return;
+        }
+
+        $captcha = new Captcha();
+        $captcha_result = $captcha->verify_submission();
+        if (is_wp_error($captcha_result)) {
+            $this->set_flash('error', $captcha_result->get_error_message());
             return;
         }
 
