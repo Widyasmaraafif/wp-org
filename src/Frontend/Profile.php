@@ -182,7 +182,9 @@ class Profile
         if ($active_tab === 'register') {
             echo $auth->render_register_shortcode();
         } else {
-            echo $auth->render_login_shortcode();
+            echo $auth->render_login_shortcode([
+                'redirect_to' => $this->get_profile_redirect_url('profile'),
+            ]);
         }
 
         echo '</div>';

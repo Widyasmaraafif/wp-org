@@ -66,12 +66,15 @@ class Auth
         return (string) ob_get_clean();
     }
 
-    public function render_login_shortcode()
+    public function render_login_shortcode($atts = [])
     {
         if (is_user_logged_in()) {
             return $this->render_notice('Anda sudah login. <a href="' . esc_url(add_query_arg('wp_org_logout', '1')) . '">Logout</a>', 'success');
         }
 
+        $atts = shortcode_atts([
+            'redirect_to' => '',
+        ], is_array($atts) ? $atts : [], 'org_login');
         $captcha = new Captcha();
 
         ob_start();
@@ -80,6 +83,9 @@ class Auth
         $this->output_flash();
         echo '<form class="wp-org-grid" method="post">';
         wp_nonce_field('wp_org_login_action', 'wp_org_login_nonce');
+        if ($atts['redirect_to'] !== '') {
+            echo '<input type="hidden" name="redirect_to" value="' . esc_url($atts['redirect_to']) . '">';
+        }
         echo $this->render_field('Username atau Email', 'log', 'text', true, false);
         echo $this->render_field('Password', 'pwd', 'password', true, false);
         echo $captcha->render('org_login');
@@ -159,9 +165,15 @@ class Auth
             'remember' => true,
         ];
 
+        $this->detach_velocity_login_captcha();
         $signed_in = wp_signon($credentials, is_ssl());
         if (is_wp_error($signed_in)) {
-            $this->set_flash('error', 'Login gagal. Periksa kembali kredensial Anda.');
+            $message = $signed_in->get_error_message();
+            if ($message === '') {
+                $message = 'Login gagal. Periksa kembali kredensial Anda.';
+            }
+
+            $this->set_flash('error', $message);
             return;
         }
 
@@ -172,7 +184,10 @@ class Auth
         }
 
         $settings = get_option('wp_org_general_settings', []);
-        $redirect = !empty($settings['login_redirect']) ? $settings['login_redirect'] : home_url('/');
+        $posted_redirect = isset($_POST['redirect_to']) ? esc_url_raw(wp_unslash($_POST['redirect_to'])) : '';
+        $redirect = $posted_redirect !== ''
+            ? $posted_redirect
+            : (!empty($settings['login_redirect']) ? $settings['login_redirect'] : home_url('/'));
         wp_safe_redirect($redirect);
         exit;
     }
@@ -310,5 +325,15 @@ class Auth
         }
 
         return $this->get_register_redirect_url();
+    }
+
+    private function detach_velocity_login_captcha()
+    {
+        $captcha = new Captcha();
+        $velocity_captcha = $captcha->get_velocity_captcha();
+
+        if ($velocity_captcha && method_exists($velocity_captcha, 'verify_login_form')) {
+            remove_filter('wp_authenticate_user', [$velocity_captcha, 'verify_login_form'], 10);
+        }
     }
 }

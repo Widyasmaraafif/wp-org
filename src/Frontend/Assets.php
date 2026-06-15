@@ -34,6 +34,51 @@ class Assets
     {
         return <<<'JS'
 (function($){
+    function initRecaptcha(context) {
+        if (typeof window.grecaptcha === 'undefined' || typeof window.grecaptcha.render !== 'function') {
+            return;
+        }
+
+        $(context || document).find('.wp-org-recaptcha').each(function() {
+            var container = this;
+            var $container = $(container);
+            var siteKey = $container.data('siteKey');
+            var form = $container.closest('form');
+
+            if (!siteKey || $container.data('widgetRendered')) {
+                return;
+            }
+
+            var ensureResponseField = function(token) {
+                var responseField = form.find('textarea[name="g-recaptcha-response"]');
+
+                if (!responseField.length) {
+                    responseField = $('<textarea>', {
+                        name: 'g-recaptcha-response'
+                    }).css('display', 'none');
+                    form.append(responseField);
+                }
+
+                responseField.val(token || '');
+            };
+
+            window.grecaptcha.render(container, {
+                sitekey: siteKey,
+                callback: function(token) {
+                    ensureResponseField(token);
+                },
+                'expired-callback': function() {
+                    ensureResponseField('');
+                },
+                'error-callback': function() {
+                    ensureResponseField('');
+                }
+            });
+
+            $container.data('widgetRendered', true);
+        });
+    }
+
     function initPasswordToggles(context) {
         $(context || document).find('.wp-org-password-field').each(function() {
             var wrapper = $(this);
@@ -100,6 +145,11 @@ class Assets
                 loadRegions('districts', city, form.find('.wp-org-district'), district);
             }
         }
+    });
+
+    initRecaptcha(document);
+    $(window).on('load', function() {
+        initRecaptcha(document);
     });
 
     initPasswordToggles(document);
