@@ -329,6 +329,7 @@ class AdminMenu
         echo '<table class="form-table"><tbody>';
         echo '<tr><th scope="row">Butuh Approval Admin</th><td><input type="checkbox" name="general[require_approval]" value="1"' . checked(!empty($general['require_approval']), true, false) . '></td></tr>';
         echo '<tr><th scope="row">Daftar Anggota Publik</th><td><input type="checkbox" name="general[members_page_public]" value="1"' . checked(!empty($general['members_page_public']), true, false) . '></td></tr>';
+        echo '<tr><th scope="row">Aktifkan Member Premium</th><td><input type="checkbox" name="general[premium_enabled]" value="1"' . checked(!empty($general['premium_enabled']) || !isset($general['premium_enabled']), true, false) . '><p class="description">Jika dimatikan, tab premium, form pengajuan, dan badge premium tidak akan ditampilkan ke member.</p></td></tr>';
         echo '<tr><th scope="row">Login Redirect URL</th><td><input class="regular-text" type="url" name="general[login_redirect]" value="' . esc_attr($general['login_redirect'] ?? '') . '"></td></tr>';
         echo '<tr><th scope="row">Captcha</th><td>';
         echo $captcha_enabled ? '<p>Tersambung ke velocity-addons dan saat ini aktif dengan provider <strong>' . esc_html($captcha_provider) . '</strong>.</p>' : '<p>Captcha mengikuti pengaturan plugin velocity-addons dan saat ini belum aktif.</p>';
@@ -397,6 +398,7 @@ class AdminMenu
         update_option('wp_org_general_settings', [
             'require_approval' => !empty($general['require_approval']) ? 1 : 0,
             'members_page_public' => !empty($general['members_page_public']) ? 1 : 0,
+            'premium_enabled' => !empty($general['premium_enabled']) ? 1 : 0,
             'login_redirect' => esc_url_raw($general['login_redirect'] ?? ''),
         ]);
 

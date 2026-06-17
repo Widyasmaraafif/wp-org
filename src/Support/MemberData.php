@@ -84,6 +84,13 @@ class MemberData
         return $status ? $status : 'none';
     }
 
+    public static function is_premium_enabled()
+    {
+        $settings = get_option('wp_org_general_settings', []);
+
+        return !isset($settings['premium_enabled']) || !empty($settings['premium_enabled']);
+    }
+
     public static function update_premium_status($user_id, $status)
     {
         update_user_meta($user_id, 'wp_org_premium_status', $status);

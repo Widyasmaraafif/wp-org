@@ -15,6 +15,7 @@ class Members
     {
         $settings = get_option('wp_org_general_settings', []);
         $is_public = !empty($settings['members_page_public']);
+        $premium_enabled = MemberData::is_premium_enabled();
 
         if (!$is_public && !is_user_logged_in()) {
             return '<div class="wp-org-card"><p>Daftar anggota hanya tersedia untuk pengguna yang login.</p></div>';
@@ -60,7 +61,7 @@ class Members
                 $premium_status = MemberData::get_premium_status($user->ID);
                 $verified_badge = '';
 
-                if ($premium_status === 'active') {
+                if ($premium_enabled && $premium_status === 'active') {
                     $verified_badge = '<small class="wp-org-verified-badge" aria-label="Verified">&#10003;</small>';
                 }
 

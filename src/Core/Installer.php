@@ -35,6 +35,7 @@ class Installer
             update_option('wp_org_general_settings', [
                 'require_approval' => 1,
                 'members_page_public' => 0,
+                'premium_enabled' => 1,
                 'login_redirect' => '',
                 'premium_fee' => 150000,
             ]);

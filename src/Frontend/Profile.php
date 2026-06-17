@@ -49,6 +49,7 @@ class Profile
         $statuses = MemberData::get_all_statuses();
         $status = MemberData::get_status($user_id);
         $general = get_option('wp_org_general_settings', []);
+        $premium_enabled = MemberData::is_premium_enabled();
         $premium_fee = absint($general['premium_fee'] ?? 0);
         $premium_status = MemberData::get_premium_status($user_id);
         $premium_labels = MemberData::get_premium_statuses();
@@ -62,7 +63,7 @@ class Profile
             return !empty($bank['enabled']);
         }));
 
-        if ($active_tab === 'premium' && in_array($card_view_mode, ['pdf', 'download'], true) && $card_data) {
+        if ($premium_enabled && $active_tab === 'premium' && in_array($card_view_mode, ['pdf', 'download'], true) && $card_data) {
             return $this->render_member_card_pdf_response($card_data, $card_view_mode === 'download');
         }
 
@@ -74,10 +75,12 @@ class Profile
         echo '</div>';
         echo '<nav class="wp-org-tabs">';
         echo '<a class="wp-org-tab ' . ($active_tab === 'profile' ? 'wp-org-tab-active' : '') . '" href="' . esc_url(add_query_arg('profile_tab', 'profile')) . '">Profil</a>';
-        echo '<a class="wp-org-tab ' . ($active_tab === 'premium' ? 'wp-org-tab-active' : '') . '" href="' . esc_url(add_query_arg('profile_tab', 'premium')) . '">Member Premium</a>';
+        if ($premium_enabled) {
+            echo '<a class="wp-org-tab ' . ($active_tab === 'premium' ? 'wp-org-tab-active' : '') . '" href="' . esc_url(add_query_arg('profile_tab', 'premium')) . '">Member Premium</a>';
+        }
         echo '</nav>';
 
-        if ($active_tab === 'premium') {
+        if ($active_tab === 'premium' && $premium_enabled) {
             echo '<div class="wp-org-profile-panel">';
             echo '<div class="wp-org-notice wp-org-notice-success"><strong>Status Premium:</strong> ' . esc_html($premium_labels[$premium_status] ?? $premium_status);
             if ($premium_fee > 0) {
@@ -200,6 +203,11 @@ class Profile
 
         if (!isset($_POST['wp_org_premium_nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['wp_org_premium_nonce'])), 'wp_org_premium_request')) {
             return;
+        }
+
+        if (!MemberData::is_premium_enabled()) {
+            wp_safe_redirect($this->get_profile_redirect_url('profile'));
+            exit;
         }
 
         $user_id = get_current_user_id();
