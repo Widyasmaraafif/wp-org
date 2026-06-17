@@ -135,36 +135,42 @@
 
 .wp-org-fields-table th:nth-child(1),
 .wp-org-fields-table td:nth-child(1) {
-    width: 26%;
+    width: 6%;
 }
 
 .wp-org-fields-table th:nth-child(2),
 .wp-org-fields-table td:nth-child(2) {
-    width: 16%;
+    width: 26%;
 }
 
 .wp-org-fields-table th:nth-child(3),
 .wp-org-fields-table td:nth-child(3) {
-    width: 28%;
+    width: 16%;
 }
 
 .wp-org-fields-table th:nth-child(4),
-.wp-org-fields-table td:nth-child(4),
+.wp-org-fields-table td:nth-child(4) {
+    width: 28%;
+}
+
 .wp-org-fields-table th:nth-child(5),
-.wp-org-fields-table td:nth-child(5) {
+.wp-org-fields-table td:nth-child(5),
+.wp-org-fields-table th:nth-child(6),
+.wp-org-fields-table td:nth-child(6) {
     width: 9%;
 }
 
-.wp-org-fields-table th:nth-child(6),
-.wp-org-fields-table td:nth-child(6) {
+.wp-org-fields-table th:nth-child(7),
+.wp-org-fields-table td:nth-child(7) {
     width: 12%;
 }
 
-.wp-org-fields-table td:nth-child(4),
-.wp-org-fields-table td:nth-child(5) {
+.wp-org-fields-table td:nth-child(5),
+.wp-org-fields-table td:nth-child(6) {
     min-width: 72px;
 }
 
+.wp-org-fields-table .wp-org-field-order-cell,
 .wp-org-fields-table .wp-org-field-label-cell,
 .wp-org-fields-table .wp-org-field-type-cell,
 .wp-org-fields-table .wp-org-field-options-cell,
@@ -179,6 +185,52 @@
     border-color: #cbd5e1;
     border-radius: 12px;
     box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.wp-org-fields-table .wp-org-field-order-cell {
+    text-align: center;
+    vertical-align: middle;
+}
+
+.wp-org-fields-table .wp-org-field-drag-handle {
+    display: inline-flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 3px;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid #d6e0ea;
+    border-radius: 10px;
+    background: #fff;
+    color: #64748b;
+    cursor: move;
+}
+
+.wp-org-fields-table .wp-org-field-drag-handle span {
+    display: block;
+    width: 12px;
+    height: 2px;
+    margin: 0 auto;
+    border-radius: 999px;
+    background: currentColor;
+}
+
+.wp-org-fields-table .wp-org-field-drag-handle:hover,
+.wp-org-fields-table .wp-org-field-drag-handle:focus {
+    border-color: #135e96;
+    color: #135e96;
+    outline: none;
+}
+
+.wp-org-fields-table .ui-sortable-helper td {
+    background: #f8fbfe;
+}
+
+.wp-org-fields-table .ui-sortable-placeholder td {
+    height: 72px;
+    border: 1px dashed #9bb7cf;
+    background: rgba(19, 94, 150, 0.06);
 }
 
 .wp-org-fields-table .wp-org-field-label {
@@ -691,6 +743,78 @@
     font-size: 15px;
 }
 
+.wp-org-admin-profile-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.wp-org-admin-profile-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.wp-org-admin-profile-field label {
+    font-weight: 600;
+    color: #0f172a;
+}
+
+.wp-org-admin-profile-field input[type="text"],
+.wp-org-admin-profile-field input[type="email"],
+.wp-org-admin-profile-field input[type="number"],
+.wp-org-admin-profile-field input[type="date"],
+.wp-org-admin-profile-field input[type="file"],
+.wp-org-admin-profile-field select,
+.wp-org-admin-profile-field textarea {
+    width: 100%;
+    min-height: 42px;
+    padding: 10px 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.wp-org-admin-profile-field textarea {
+    min-height: 110px;
+    resize: vertical;
+}
+
+.wp-org-admin-profile-field input[readonly] {
+    background: #f1f5f9;
+    color: #475569;
+}
+
+.wp-org-admin-choice-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 12px;
+    background: #fff;
+}
+
+.wp-org-admin-file-preview img {
+    display: block;
+    max-width: 180px;
+    height: auto;
+    border: 1px solid #d6e0ea;
+    border-radius: 12px;
+}
+
+.wp-org-admin-file-link {
+    margin: 0;
+}
+
+.wp-org-admin-profile-field-textarea,
+.wp-org-admin-profile-field-image,
+.wp-org-admin-profile-field-file,
+.wp-org-admin-profile-field-checkbox {
+    grid-column: 1 / -1;
+}
+
 .wp-org-admin-modal-actions {
     display: flex;
     justify-content: flex-end;
@@ -702,9 +826,10 @@
     white-space: nowrap;
 }
 
-.wp-org-fields-table thead th:nth-child(4),
+.wp-org-fields-table thead th:nth-child(1),
 .wp-org-fields-table thead th:nth-child(5),
-.wp-org-fields-table thead th:nth-child(6) {
+.wp-org-fields-table thead th:nth-child(6),
+.wp-org-fields-table thead th:nth-child(7) {
     text-align: center;
 }
 
@@ -753,6 +878,10 @@
 
     .wp-org-admin-modal-dialog {
         padding: 18px;
+    }
+
+    .wp-org-admin-profile-grid {
+        grid-template-columns: 1fr;
     }
 
     .wp-org-fields-table thead {
@@ -804,8 +933,17 @@
     .wp-org-fields-table td:nth-child(3),
     .wp-org-fields-table td:nth-child(4),
     .wp-org-fields-table td:nth-child(5),
-    .wp-org-fields-table td:nth-child(6) {
+    .wp-org-fields-table td:nth-child(6),
+    .wp-org-fields-table td:nth-child(7) {
         min-width: 0;
+    }
+
+    .wp-org-fields-table .wp-org-field-order-cell {
+        padding-bottom: 6px;
+    }
+
+    .wp-org-fields-table .wp-org-field-order-cell::before {
+        margin-bottom: 10px;
     }
 
     .wp-org-fields-table .wp-org-field-flag-cell,

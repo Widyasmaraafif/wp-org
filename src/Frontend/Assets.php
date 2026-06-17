@@ -104,6 +104,33 @@ class Assets
         });
     }
 
+    function initFrontendModals() {
+        $(document).on('click', '.wp-org-open-modal', function() {
+            var target = $(this).data('modalTarget');
+            $('#' + target).addClass('is-open').attr('aria-hidden', 'false');
+            $('body').addClass('wp-org-modal-open');
+        });
+
+        $(document).on('click', '.wp-org-modal-close, .wp-org-modal-close-inline', function() {
+            $(this).closest('.wp-org-modal').removeClass('is-open').attr('aria-hidden', 'true');
+            $('body').removeClass('wp-org-modal-open');
+        });
+
+        $(document).on('click', '.wp-org-modal', function(event) {
+            if ($(event.target).is('.wp-org-modal')) {
+                $(this).removeClass('is-open').attr('aria-hidden', 'true');
+                $('body').removeClass('wp-org-modal-open');
+            }
+        });
+
+        $(document).on('keydown', function(event) {
+            if (event.key === 'Escape') {
+                $('.wp-org-modal.is-open').removeClass('is-open').attr('aria-hidden', 'true');
+                $('body').removeClass('wp-org-modal-open');
+            }
+        });
+    }
+
     function loadRegions(type, parent, target, selected) {
         $.get(WpOrgFrontend.ajaxUrl, { action: 'wp_org_regions', type: type, parent: parent }).done(function(response) {
             var items = response && response.success ? response.data : [];
@@ -153,6 +180,7 @@ class Assets
     });
 
     initPasswordToggles(document);
+    initFrontendModals();
 })(jQuery);
 JS;
     }

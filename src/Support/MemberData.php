@@ -112,7 +112,11 @@ class MemberData
 
     public static function save_profile_fields($user_id, $data)
     {
-        $fields = self::get_registration_fields();
+        self::save_profile_fields_with_definitions($user_id, $data, self::get_registration_fields());
+    }
+
+    public static function save_profile_fields_with_definitions($user_id, $data, array $fields)
+    {
         $regions = new Regions();
 
         foreach ($fields as $field) {

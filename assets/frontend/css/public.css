@@ -572,6 +572,169 @@
     grid-column: 1 / -1;
 }
 
+.wp-org-account-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px;
+}
+
+.wp-org-account-form .wp-org-actions {
+    grid-column: 1 / -1;
+}
+
+.wp-org-account-field-wide {
+    grid-column: 1 / -1;
+}
+
+.wp-org-account-checkbox {
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr);
+    align-items: center;
+    column-gap: 12px;
+    padding: 14px 16px;
+    border: 1px solid #e7c9c9;
+    border-radius: 14px;
+    background: #fffafa;
+    color: #7f1d1d;
+    font-weight: 500;
+    line-height: 1.4;
+}
+
+.wp-org-account-checkbox input[type="checkbox"] {
+    margin: 0;
+    width: 18px;
+    height: 18px;
+    min-height: 18px;
+    padding: 0;
+    border-radius: 4px;
+    line-height: 1;
+    box-shadow: none;
+    flex: none;
+    align-self: center;
+}
+
+.wp-org-account-checkbox span {
+    display: inline;
+    align-self: auto;
+    margin: 0;
+    line-height: 1.4;
+}
+
+.wp-org-danger-zone {
+    border-color: #fecaca;
+    background: linear-gradient(180deg, #fff7f7 0%, #ffffff 100%);
+}
+
+.wp-org-danger-zone-actions {
+    display: flex;
+    justify-content: flex-start;
+}
+
+.wp-org-button-danger {
+    background: #b91c1c;
+    border-color: #b91c1c;
+}
+
+.wp-org-button-secondary {
+    background: #fff;
+    color: #16324a;
+    border: 1px solid #d7e3ee;
+}
+
+.wp-org-button-secondary:hover,
+.wp-org-button-secondary:focus {
+    background: #f8fbfe;
+    border-color: #c5d5e3;
+}
+
+.wp-org-button-danger:hover,
+.wp-org-button-danger:focus {
+    background: #991b1b;
+    border-color: #991b1b;
+}
+
+.wp-org-modal-open {
+    overflow: hidden;
+}
+
+.wp-org-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(15, 23, 42, 0.48);
+}
+
+.wp-org-modal.is-open {
+    display: flex;
+}
+
+.wp-org-modal-dialog {
+    width: min(520px, 100%);
+    max-height: calc(100vh - 48px);
+    overflow: auto;
+    padding: 22px;
+    border-radius: 22px;
+    background: #fff;
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.22);
+}
+
+.wp-org-modal-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 14px;
+}
+
+.wp-org-modal-eyebrow {
+    margin: 0 0 6px;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #b91c1c;
+}
+
+.wp-org-modal-header h3 {
+    margin: 0 0 6px;
+    font-size: 24px;
+    line-height: 1.2;
+    color: #16324a;
+}
+
+.wp-org-modal-close {
+    border: 0;
+    background: transparent;
+    color: #64748b;
+    font-size: 26px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.wp-org-delete-modal-note {
+    margin-bottom: 16px;
+    padding: 12px 14px;
+    border: 1px solid #f3d4d4;
+    border-radius: 14px;
+    background: linear-gradient(180deg, #fff8f8 0%, #fffdfd 100%);
+    color: #7f1d1d;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.wp-org-delete-account-form {
+    gap: 14px;
+}
+
+.wp-org-delete-account-form .wp-org-actions {
+    justify-content: flex-end;
+    gap: 12px;
+    padding-top: 4px;
+}
+
 .wp-org-bank-list-wrap {
     padding: 16px 18px;
     border: 1px solid #dfe9f1;
@@ -743,11 +906,20 @@
 
     .wp-org-profile-form,
     .wp-org-profile-summary,
-    .wp-org-premium-form {
+    .wp-org-premium-form,
+    .wp-org-account-form {
         grid-template-columns: 1fr;
     }
 
     .wp-org-profile-panel {
+        padding: 18px;
+    }
+
+    .wp-org-modal {
+        padding: 14px;
+    }
+
+    .wp-org-modal-dialog {
         padding: 18px;
     }
 

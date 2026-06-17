@@ -3,6 +3,7 @@
 namespace WpOrg\Admin;
 
 use WpOrg\Support\MemberData;
+use WpOrg\Support\Regions;
 
 class AdminMenu
 {
@@ -18,6 +19,7 @@ class AdminMenu
         add_action('admin_post_wp_org_save_payment_banks', [$this, 'handle_save_payment_banks']);
         add_action('admin_post_wp_org_save_member_card_settings', [$this, 'handle_save_member_card_settings']);
         add_action('admin_post_wp_org_update_premium_status', [$this, 'handle_update_premium_status']);
+        add_action('admin_post_wp_org_update_member_profile', [$this, 'handle_update_member_profile']);
     }
 
     public function add_menu()
@@ -151,9 +153,9 @@ class AdminMenu
         echo '</div><div class="wp-org-admin-card"><form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
         wp_nonce_field('wp_org_save_fields');
         echo '<input type="hidden" name="action" value="wp_org_save_fields">';
-        echo '<div class="wp-org-admin-fields-toolbar"><div><h2>Daftar Field</h2><p class="description">Tambah, hapus, aktifkan, atau nonaktifkan field pendaftaran. Field nonaktif tetap tersimpan tetapi tidak ditampilkan di frontend.</p></div><button type="button" class="button button-secondary" id="wp-org-add-field">Tambah Field</button></div>';
+        echo '<div class="wp-org-admin-fields-toolbar"><div><h2>Daftar Field</h2><p class="description">Tambah, hapus, aktifkan, atau nonaktifkan field pendaftaran. Field nonaktif tetap tersimpan tetapi tidak ditampilkan di frontend.</p><p class="description">Seret baris lewat handle di kolom paling kiri untuk mengubah urutan field.</p></div><button type="button" class="button button-secondary" id="wp-org-add-field">Tambah Field</button></div>';
         echo '<div class="wp-org-admin-note"><strong>Panduan cepat:</strong> isi <code>Label</code> seperti biasa, lalu sistem akan membuat <code>key</code> otomatis dalam format underscore. Kolom <code>opsi</code> hanya dipakai untuk field pilihan.</div>';
-        echo '<div class="wp-org-admin-table-card"><table class="widefat striped wp-org-fields-table wp-org-admin-table"><thead><tr><th>Label</th><th>Tipe</th><th>Opsi</th><th>Wajib</th><th>Aktif</th><th>Aksi</th></tr></thead><tbody data-next-index="' . esc_attr((string) count($fields)) . '">';
+        echo '<div class="wp-org-admin-table-card"><table class="widefat striped wp-org-fields-table wp-org-admin-table"><thead><tr><th>Urut</th><th>Label</th><th>Tipe</th><th>Opsi</th><th>Wajib</th><th>Aktif</th><th>Aksi</th></tr></thead><tbody data-next-index="' . esc_attr((string) count($fields)) . '">';
 
         foreach ($fields as $index => $field) {
             echo $this->render_field_row($index, $field);
@@ -616,6 +618,48 @@ class AdminMenu
         exit;
     }
 
+    public function handle_update_member_profile()
+    {
+        $user_id = isset($_POST['user_id']) ? absint($_POST['user_id']) : 0;
+
+        if (!$user_id || !current_user_can('wp_org_manage_members') || !check_admin_referer('wp_org_update_member_profile_' . $user_id)) {
+            wp_die('Permintaan tidak valid.');
+        }
+
+        $user = get_user_by('id', $user_id);
+
+        if (!$user) {
+            wp_die('Anggota tidak ditemukan.');
+        }
+
+        $display_name = isset($_POST['display_name']) ? sanitize_text_field(wp_unslash($_POST['display_name'])) : '';
+        $user_email = isset($_POST['user_email']) ? sanitize_email(wp_unslash($_POST['user_email'])) : '';
+
+        if ($display_name === '') {
+            $display_name = $user->display_name;
+        }
+
+        if (!$user_email || !is_email($user_email)) {
+            wp_die('Email anggota tidak valid.');
+        }
+
+        $existing_user = get_user_by('email', $user_email);
+        if ($existing_user && (int) $existing_user->ID !== $user_id) {
+            wp_die('Email sudah digunakan oleh anggota lain.');
+        }
+
+        wp_update_user([
+            'ID' => $user_id,
+            'display_name' => $display_name,
+            'user_email' => $user_email,
+        ]);
+
+        MemberData::save_profile_fields_with_definitions($user_id, $_POST, MemberData::get_all_registration_fields());
+
+        wp_safe_redirect(admin_url('admin.php?page=wp-org'));
+        exit;
+    }
+
     public function enqueue_admin_assets($hook_suffix)
     {
         if (!in_array($hook_suffix, ['toplevel_page_wp-org', 'wp-org_page_wp-org-fields', 'wp-org_page_wp-org-settings'], true)) {
@@ -628,119 +672,20 @@ class AdminMenu
             ['wp-admin'],
             WP_ORG_VERSION
         );
-        wp_add_inline_script(
-            'jquery-core',
-            <<<'JS'
-jQuery(function($){
-    function slugifyFieldKey(label) {
-        return (label || '')
-            .toLowerCase()
-            .replace(/[^a-z0-9]+/g, '_')
-            .replace(/^_+|_+$/g, '')
-            .replace(/_+/g, '_');
-    }
-
-    function fieldTypeNeedsOptions(type) {
-        return ['select', 'radio', 'checkbox'].indexOf(type) !== -1;
-    }
-
-    function syncFieldKey($row) {
-        var $labelInput = $row.find('.wp-org-field-label');
-        var $keyInput = $row.find('.wp-org-field-key');
-        var $keyPreview = $row.find('.wp-org-field-key-preview');
-        var key = $row.attr('data-key-locked') === '1'
-            ? $keyInput.val()
-            : slugifyFieldKey($labelInput.val());
-
-        $keyInput.val(key);
-        $keyPreview.text(key ? 'ID: ' + key : 'ID akan dibuat otomatis dari label');
-    }
-
-    function syncOptionState($row) {
-        var type = $row.find('.wp-org-field-type').val();
-        var $optionsCell = $row.find('.wp-org-field-options-cell');
-        var shouldShow = fieldTypeNeedsOptions(type);
-        $optionsCell.toggleClass('is-hidden', !shouldShow);
-    }
-
-    function syncRowState($row) {
-        var isEnabled = $row.find('.wp-org-field-enabled').is(':checked');
-        $row.toggleClass('wp-org-field-row-disabled', !isEnabled);
-        syncFieldKey($row);
-        syncOptionState($row);
-    }
-
-    $(document).on('click', '#wp-org-add-field', function() {
-        var $tbody = $('.wp-org-fields-table tbody');
-        var nextIndex = parseInt($tbody.attr('data-next-index'), 10) || 0;
-        var template = $('#tmpl-wp-org-field-row').html().replace(/__index__/g, nextIndex);
-        $tbody.append(template);
-        $tbody.attr('data-next-index', nextIndex + 1);
-    });
-
-    $(document).on('click', '.wp-org-remove-field', function() {
-        var $row = $(this).closest('tr');
-        $row.find('.wp-org-field-delete').val('1');
-        $row.remove();
-    });
-
-    $(document).on('change', '.wp-org-field-enabled', function() {
-        syncRowState($(this).closest('tr'));
-    });
-
-    $(document).on('change', '.wp-org-field-type', function() {
-        syncOptionState($(this).closest('tr'));
-    });
-
-    $(document).on('input', '.wp-org-field-label', function() {
-        syncFieldKey($(this).closest('tr'));
-    });
-
-    $('.wp-org-fields-table tbody tr').each(function() {
-        syncRowState($(this));
-    });
-
-    $(document).on('click', '#wp-org-add-bank', function() {
-        var $tbody = $('.wp-org-bank-table tbody');
-        var nextIndex = parseInt($tbody.attr('data-next-index'), 10) || 0;
-        var template = $('#tmpl-wp-org-bank-row').html().replace(/__index__/g, nextIndex);
-        $tbody.append(template);
-        $tbody.attr('data-next-index', nextIndex + 1);
-    });
-
-    $(document).on('click', '.wp-org-remove-bank', function() {
-        var $row = $(this).closest('tr');
-        $row.find('.wp-org-bank-delete').val('1');
-        $row.remove();
-    });
-
-    $(document).on('click', '.wp-org-admin-open-modal', function() {
-        var target = $(this).data('modal-target');
-        $('#' + target).addClass('is-open').attr('aria-hidden', 'false');
-        $('body').addClass('wp-org-modal-open');
-    });
-
-    $(document).on('click', '.wp-org-admin-modal-close', function() {
-        $(this).closest('.wp-org-admin-modal').removeClass('is-open').attr('aria-hidden', 'true');
-        $('body').removeClass('wp-org-modal-open');
-    });
-
-    $(document).on('click', '.wp-org-admin-modal', function(e) {
-        if ($(e.target).is('.wp-org-admin-modal')) {
-            $(this).removeClass('is-open').attr('aria-hidden', 'true');
-            $('body').removeClass('wp-org-modal-open');
-        }
-    });
-
-    $(document).on('keydown', function(e) {
-        if (e.key === 'Escape') {
-            $('.wp-org-admin-modal.is-open').removeClass('is-open').attr('aria-hidden', 'true');
-            $('body').removeClass('wp-org-modal-open');
-        }
-    });
-});
-JS
+        wp_enqueue_script(
+            'wp-org-admin',
+            WP_ORG_URL . 'assets/frontend/js/admin.js',
+            ['jquery', 'jquery-ui-sortable'],
+            WP_ORG_VERSION,
+            true
         );
+        wp_localize_script('wp-org-admin', 'WpOrgAdmin', [
+            'ajaxUrl' => admin_url('admin-ajax.php'),
+            'labels' => [
+                'cityPlaceholder' => 'Pilih kota/kabupaten',
+                'districtPlaceholder' => 'Pilih kecamatan',
+            ],
+        ]);
     }
 
     private function render_member_action_modal($user, $statuses, $status, $note, $premium_statuses, $premium_status)
@@ -751,6 +696,7 @@ JS
         $html = '<div id="' . esc_attr($modal_id) . '" class="wp-org-admin-modal" aria-hidden="true"><div class="wp-org-admin-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="' . esc_attr($modal_id) . '-title">';
         $html .= '<div class="wp-org-admin-modal-header"><div><h3 id="' . esc_attr($modal_id) . '-title">Kelola ' . esc_html($user->display_name) . '</h3><p class="wp-org-admin-subtle" style="margin:0">Nomor anggota: <code>' . esc_html($member_number) . '</code><br>' . esc_html($user->user_email) . '</p></div><button type="button" class="wp-org-admin-modal-close" aria-label="Tutup">&times;</button></div>';
         $html .= '<div class="wp-org-admin-modal-grid">';
+        $html .= $this->render_member_profile_section($user);
         $html .= '<div class="wp-org-admin-modal-section"><h4>Status Anggota</h4><form class="wp-org-admin-inline-form" method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
         ob_start();
         wp_nonce_field('wp_org_update_member_status_' . $user->ID);
@@ -784,9 +730,101 @@ JS
         return $html;
     }
 
+    private function render_member_profile_section($user)
+    {
+        $fields = MemberData::get_all_registration_fields();
+        $regions = new Regions();
+        $html = '<div class="wp-org-admin-modal-section">';
+        $html .= '<h4>Profil Anggota</h4>';
+        $html .= '<form class="wp-org-admin-member-profile-form wp-org-region-form" method="post" enctype="multipart/form-data" action="' . esc_url(admin_url('admin-post.php')) . '">';
+        ob_start();
+        wp_nonce_field('wp_org_update_member_profile_' . $user->ID);
+        $html .= (string) ob_get_clean();
+        $html .= '<input type="hidden" name="action" value="wp_org_update_member_profile">';
+        $html .= '<input type="hidden" name="user_id" value="' . esc_attr((string) $user->ID) . '">';
+        $html .= '<div class="wp-org-admin-profile-grid">';
+        $html .= '<div class="wp-org-admin-profile-field"><label>Username</label><input type="text" value="' . esc_attr($user->user_login) . '" readonly></div>';
+        $html .= '<div class="wp-org-admin-profile-field"><label for="wp-org-display-name-' . esc_attr((string) $user->ID) . '">Nama Tampil</label><input id="wp-org-display-name-' . esc_attr((string) $user->ID) . '" type="text" name="display_name" value="' . esc_attr($user->display_name) . '"></div>';
+        $html .= '<div class="wp-org-admin-profile-field"><label for="wp-org-email-' . esc_attr((string) $user->ID) . '">Email</label><input id="wp-org-email-' . esc_attr((string) $user->ID) . '" type="email" name="user_email" value="' . esc_attr($user->user_email) . '" required></div>';
+
+        foreach ($fields as $field) {
+            $value = get_user_meta($user->ID, 'wp_org_' . $field['key'], true);
+            $html .= $this->render_member_profile_field($field, $value, $regions, $user->ID);
+        }
+
+        $html .= '</div>';
+        $html .= '<div class="wp-org-admin-modal-actions">';
+        ob_start();
+        submit_button('Simpan Profil', 'secondary', 'submit', false);
+        $html .= (string) ob_get_clean();
+        $html .= '</div></form></div>';
+
+        return $html;
+    }
+
     private function get_member_number($user_id)
     {
         return MemberData::get_member_number($user_id);
+    }
+
+    private function render_member_profile_field($field, $value, Regions $regions, $user_id)
+    {
+        $key = $field['key'];
+        $input_id = 'wp-org-member-' . $user_id . '-' . $key;
+        $required = !empty($field['required']) ? ' required' : '';
+        $options = MemberData::get_field_options($field);
+        $html = '<div class="wp-org-admin-profile-field wp-org-admin-profile-field-' . esc_attr($field['type']) . '">';
+        $html .= '<label for="' . esc_attr($input_id) . '">' . esc_html($field['label']) . '</label>';
+
+        if ($field['type'] === 'textarea') {
+            $html .= '<textarea id="' . esc_attr($input_id) . '" name="' . esc_attr($key) . '"' . $required . '>' . esc_textarea((string) $value) . '</textarea>';
+        } elseif ($field['type'] === 'select') {
+            $html .= '<select id="' . esc_attr($input_id) . '" name="' . esc_attr($key) . '"' . $required . '><option value="">Pilih opsi</option>';
+            foreach ($options as $option) {
+                $html .= '<option value="' . esc_attr($option) . '"' . selected($value, $option, false) . '>' . esc_html($option) . '</option>';
+            }
+            $html .= '</select>';
+        } elseif ($field['type'] === 'radio') {
+            $html .= '<div class="wp-org-admin-choice-list">';
+            foreach ($options as $option) {
+                $html .= '<label><input type="radio" name="' . esc_attr($key) . '" value="' . esc_attr($option) . '"' . checked($value, $option, false) . $required . '> ' . esc_html($option) . '</label>';
+            }
+            $html .= '</div>';
+        } elseif ($field['type'] === 'checkbox') {
+            $selected_values = is_array($value) ? $value : (array) $value;
+            $html .= '<div class="wp-org-admin-choice-list">';
+            foreach ($options as $option) {
+                $html .= '<label><input type="checkbox" name="' . esc_attr($key) . '[]" value="' . esc_attr($option) . '"' . checked(in_array($option, $selected_values, true), true, false) . '> ' . esc_html($option) . '</label>';
+            }
+            $html .= '</div>';
+        } elseif ($field['type'] === 'image') {
+            if ((string) $value !== '') {
+                $html .= '<div class="wp-org-admin-file-preview"><img src="' . esc_url((string) $value) . '" alt="' . esc_attr($field['label']) . '"></div>';
+            }
+            $html .= '<input id="' . esc_attr($input_id) . '" name="' . esc_attr($key) . '" type="file" accept="image/jpeg,image/png,image/webp"' . $required . '>';
+        } elseif ($field['type'] === 'file') {
+            if ((string) $value !== '') {
+                $html .= '<p class="wp-org-admin-file-link"><a href="' . esc_url((string) $value) . '" target="_blank" rel="noopener">Lihat file saat ini</a></p>';
+            }
+            $html .= '<input id="' . esc_attr($input_id) . '" name="' . esc_attr($key) . '" type="file"' . $required . '>';
+        } elseif ($field['type'] === 'region_province') {
+            $html .= '<select id="' . esc_attr($input_id) . '" class="wp-org-province" name="' . esc_attr($key) . '" data-selected="' . esc_attr((string) $value) . '"' . $required . '><option value="">Pilih provinsi</option>';
+            foreach ($regions->get_provinces() as $province) {
+                $html .= '<option value="' . esc_attr($province['code']) . '"' . selected($value, $province['code'], false) . '>' . esc_html($province['name']) . '</option>';
+            }
+            $html .= '</select>';
+        } elseif ($field['type'] === 'region_city') {
+            $html .= '<select id="' . esc_attr($input_id) . '" class="wp-org-city" name="' . esc_attr($key) . '" data-selected="' . esc_attr((string) $value) . '"' . $required . '><option value="">Pilih kota/kabupaten</option></select>';
+        } elseif ($field['type'] === 'region_district') {
+            $html .= '<select id="' . esc_attr($input_id) . '" class="wp-org-district" name="' . esc_attr($key) . '" data-selected="' . esc_attr((string) $value) . '"' . $required . ' disabled><option value="">Pilih kecamatan</option></select>';
+        } else {
+            $input_type = in_array($field['type'], ['email', 'number', 'date'], true) ? $field['type'] : 'text';
+            $html .= '<input id="' . esc_attr($input_id) . '" name="' . esc_attr($key) . '" type="' . esc_attr($input_type) . '" value="' . esc_attr(is_array($value) ? implode(', ', $value) : (string) $value) . '"' . $required . '>';
+        }
+
+        $html .= '</div>';
+
+        return $html;
     }
 
     private function render_field_row($index, $field)
@@ -815,6 +853,7 @@ JS
         $row_class = !empty($field['enabled']) ? '' : ' class="wp-org-field-row-disabled"';
 
         return '<tr' . $row_class . ' data-key-locked="' . ($field['key'] !== '' ? '1' : '0') . '">'
+            . '<td class="wp-org-field-order-cell" data-label="Urut"><button type="button" class="wp-org-field-drag-handle" aria-label="Geser untuk ubah urutan" title="Geser untuk ubah urutan"><span></span><span></span><span></span></button></td>'
             . '<td class="wp-org-field-label-cell" data-label="Label"><input type="hidden" class="wp-org-field-delete" name="fields[' . esc_attr((string) $index) . '][_delete]" value="0"><input type="hidden" class="wp-org-field-key" name="fields[' . esc_attr((string) $index) . '][key]" value="' . esc_attr($field['key']) . '"><input type="text" class="wp-org-field-label" name="fields[' . esc_attr((string) $index) . '][label]" value="' . esc_attr($field['label']) . '" placeholder="Label field"><p class="wp-org-admin-field-id wp-org-field-key-preview">ID: ' . esc_html($field['key']) . '</p></td>'
             . '<td class="wp-org-field-type-cell" data-label="Tipe"><select class="wp-org-field-type" name="fields[' . esc_attr((string) $index) . '][type]">' . $type_options . '</select></td>'
             . '<td class="wp-org-field-options-cell" data-label="Opsi"><div class="wp-org-field-options-wrap"><textarea name="fields[' . esc_attr((string) $index) . '][options]" placeholder="Satu opsi per baris">' . esc_textarea($field['options'] ?? '') . '</textarea><p class="wp-org-admin-help">Dipakai untuk select, radio, dan checkbox</p></div></td>'

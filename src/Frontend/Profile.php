@@ -14,6 +14,8 @@ class Profile
         add_shortcode('org_profile', [$this, 'render_shortcode']);
         add_action('init', [$this, 'handle_update']);
         add_action('init', [$this, 'handle_premium_request']);
+        add_action('init', [$this, 'handle_account_update']);
+        add_action('init', [$this, 'handle_account_delete']);
     }
 
     public function handle_update()
@@ -50,7 +52,7 @@ class Profile
         $status = MemberData::get_status($user_id);
         $general = get_option('wp_org_general_settings', []);
         $premium_enabled = MemberData::is_premium_enabled();
-        $allowed_tabs = ['profile', 'edit-profile'];
+        $allowed_tabs = ['profile', 'edit-profile', 'edit-account'];
         if ($premium_enabled) {
             $allowed_tabs[] = 'premium';
         }
@@ -65,6 +67,7 @@ class Profile
         $proof_url = get_user_meta($user_id, 'wp_org_premium_proof_url', true);
         $member_card_settings = get_option('wp_org_member_card_settings', []);
         $card_view_mode = isset($_GET['member_card_view']) ? sanitize_key(wp_unslash($_GET['member_card_view'])) : '';
+        $account_notice = isset($_GET['account_notice']) ? sanitize_key(wp_unslash($_GET['account_notice'])) : '';
         $card_data = $premium_status === 'active' ? $this->get_member_card_data($user_id) : null;
         $logout_url = wp_logout_url($this->get_current_profile_url());
         $payment_banks = array_values(array_filter((array) get_option('wp_org_payment_banks', []), static function ($bank) {
@@ -84,11 +87,16 @@ class Profile
         echo '<nav class="wp-org-tabs">';
         echo '<a class="wp-org-tab ' . ($active_tab === 'profile' ? 'wp-org-tab-active' : '') . '" href="' . esc_url(add_query_arg('profile_tab', 'profile')) . '">' . $this->render_nav_icon('user') . '<span>Profil</span></a>';
         echo '<a class="wp-org-tab ' . ($active_tab === 'edit-profile' ? 'wp-org-tab-active' : '') . '" href="' . esc_url(add_query_arg('profile_tab', 'edit-profile')) . '">' . $this->render_nav_icon('square-pen') . '<span>Edit Profile</span></a>';
+        echo '<a class="wp-org-tab ' . ($active_tab === 'edit-account' ? 'wp-org-tab-active' : '') . '" href="' . esc_url(add_query_arg('profile_tab', 'edit-account')) . '">' . $this->render_nav_icon('lock') . '<span>Edit Akun</span></a>';
         if ($premium_enabled) {
             echo '<a class="wp-org-tab ' . ($active_tab === 'premium' ? 'wp-org-tab-active' : '') . '" href="' . esc_url(add_query_arg('profile_tab', 'premium')) . '">' . $this->render_nav_icon('badge-check') . '<span>Member Premium</span></a>';
         }
         echo '<a class="wp-org-tab wp-org-tab-logout" href="' . esc_url($logout_url) . '">' . $this->render_nav_icon('log-out') . '<span>Logout</span></a>';
         echo '</nav>';
+
+        if ($account_notice !== '') {
+            echo $this->render_account_notice($account_notice);
+        }
 
         if ($active_tab === 'premium' && $premium_enabled) {
             echo '<div class="wp-org-profile-panel">';
@@ -167,6 +175,8 @@ class Profile
             echo '<div class="wp-org-actions"><button class="wp-org-button" type="submit" name="wp_org_profile_submit" value="1">Simpan Profil</button></div>';
             echo '</form>';
             echo '</div>';
+        } elseif ($active_tab === 'edit-account') {
+            echo $this->render_account_panel();
         } else {
             echo '<div class="wp-org-profile-panel">';
             echo '<div class="wp-org-section-heading"><div><h3>Ringkasan Profil</h3><p class="wp-org-muted">Lihat data anggota Anda di bawah ini.</p></div></div>';
@@ -244,6 +254,73 @@ class Profile
         exit;
     }
 
+    public function handle_account_update()
+    {
+        if (!isset($_POST['wp_org_account_password_submit']) || !is_user_logged_in()) {
+            return;
+        }
+
+        if (!isset($_POST['wp_org_account_nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['wp_org_account_nonce'])), 'wp_org_account_action')) {
+            return;
+        }
+
+        $current_password = (string) wp_unslash($_POST['current_password'] ?? '');
+        $new_password = (string) wp_unslash($_POST['new_password'] ?? '');
+        $confirm_password = (string) wp_unslash($_POST['confirm_password'] ?? '');
+        $user = wp_get_current_user();
+
+        if (!$user || !$user->ID) {
+            return;
+        }
+
+        if (!wp_check_password($current_password, $user->user_pass, $user->ID)) {
+            wp_safe_redirect($this->get_account_notice_url('password_invalid'));
+            exit;
+        }
+
+        if (strlen($new_password) < 8) {
+            wp_safe_redirect($this->get_account_notice_url('password_short'));
+            exit;
+        }
+
+        if ($new_password !== $confirm_password) {
+            wp_safe_redirect($this->get_account_notice_url('password_mismatch'));
+            exit;
+        }
+
+        wp_set_password($new_password, $user->ID);
+        wp_set_auth_cookie($user->ID);
+        wp_safe_redirect($this->get_account_notice_url('password_updated'));
+        exit;
+    }
+
+    public function handle_account_delete()
+    {
+        if (!isset($_POST['wp_org_account_delete_submit']) || !is_user_logged_in()) {
+            return;
+        }
+
+        if (!isset($_POST['wp_org_account_delete_nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['wp_org_account_delete_nonce'])), 'wp_org_account_delete_action')) {
+            return;
+        }
+
+        $confirmed = !empty($_POST['delete_account_confirm']);
+
+        if (!$confirmed) {
+            wp_safe_redirect($this->get_account_notice_url('delete_confirmation_required'));
+            exit;
+        }
+
+        $user_id = get_current_user_id();
+
+        require_once ABSPATH . 'wp-admin/includes/user.php';
+
+        wp_logout();
+        wp_delete_user($user_id);
+        wp_safe_redirect(home_url('/'));
+        exit;
+    }
+
     private function get_profile_redirect_url($tab)
     {
         $request_uri = isset($_SERVER['REQUEST_URI']) ? wp_unslash($_SERVER['REQUEST_URI']) : '';
@@ -255,6 +332,14 @@ class Profile
         }
 
         return add_query_arg('profile_tab', $tab, home_url('/'));
+    }
+
+    private function get_account_notice_url($notice)
+    {
+        return add_query_arg([
+            'profile_tab' => 'edit-account',
+            'account_notice' => $notice,
+        ], $this->get_current_profile_url());
     }
 
     private function handle_premium_proof_upload()
@@ -589,6 +674,7 @@ class Profile
         $icons = [
             'user' => '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 21a7 7 0 0 0-14 0"/><circle cx="12" cy="8" r="4"/></svg>',
             'square-pen' => '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="m16 3 5 5"/><path d="M13 20h8"/><path d="M16.5 3.5a2.1 2.1 0 1 1 3 3L8 18l-4 1 1-4Z"/></svg>',
+            'lock' => '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V8a5 5 0 0 1 10 0v3"/></svg>',
             'badge-check' => '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 15 2 2 4-4"/><path d="M8.5 4.5 10 2l2 2 2-2 1.5 2.5L18.5 5l-.5 3 2 2-2 2 .5 3-3 .5L14 22l-2-2-2 2-1.5-2.5-3-.5.5-3-2-2 2-2-.5-3Z"/></svg>',
             'log-out' => '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/><path d="M13 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8"/></svg>',
         ];
@@ -598,6 +684,66 @@ class Profile
         }
 
         return '<span class="wp-org-tab-icon">' . $icons[$name] . '</span>';
+    }
+
+    private function render_account_notice($notice)
+    {
+        $messages = [
+            'password_updated' => ['success', 'Password berhasil diperbarui.'],
+            'password_invalid' => ['error', 'Password saat ini tidak sesuai.'],
+            'password_short' => ['error', 'Password baru minimal 8 karakter.'],
+            'password_mismatch' => ['error', 'Konfirmasi password baru tidak cocok.'],
+            'delete_confirmation_required' => ['error', 'Centang persetujuan sebelum menghapus akun.'],
+        ];
+
+        if (!isset($messages[$notice])) {
+            return '';
+        }
+
+        return '<div class="wp-org-notice wp-org-notice-' . esc_attr($messages[$notice][0]) . '">' . esc_html($messages[$notice][1]) . '</div>';
+    }
+
+    private function render_account_panel()
+    {
+        ob_start();
+        echo '<div class="wp-org-profile-panel">';
+        echo '<div class="wp-org-profile-section">';
+        echo '<div class="wp-org-section-heading"><div><h3>Ubah Password</h3><p class="wp-org-muted">Gunakan password baru minimal 8 karakter.</p></div></div>';
+        echo '<form class="wp-org-grid wp-org-account-form" method="post">';
+        wp_nonce_field('wp_org_account_action', 'wp_org_account_nonce');
+        echo '<div class="wp-org-field wp-org-account-field-wide">';
+        echo '<label for="wp_org_current_password">Password Saat Ini</label>';
+        echo '<div class="wp-org-password-field"><input id="wp_org_current_password" name="current_password" type="password" required><button class="wp-org-password-toggle" type="button" aria-label="Tampilkan password" aria-pressed="false" data-show-label="Tampilkan password" data-hide-label="Sembunyikan password"><span class="wp-org-password-toggle-icon" aria-hidden="true"></span></button></div>';
+        echo '</div>';
+        echo '<div class="wp-org-field">';
+        echo '<label for="wp_org_new_password">Password Baru</label>';
+        echo '<div class="wp-org-password-field"><input id="wp_org_new_password" name="new_password" type="password" required><button class="wp-org-password-toggle" type="button" aria-label="Tampilkan password" aria-pressed="false" data-show-label="Tampilkan password" data-hide-label="Sembunyikan password"><span class="wp-org-password-toggle-icon" aria-hidden="true"></span></button></div>';
+        echo '</div>';
+        echo '<div class="wp-org-field">';
+        echo '<label for="wp_org_confirm_password">Konfirmasi Password Baru</label>';
+        echo '<div class="wp-org-password-field"><input id="wp_org_confirm_password" name="confirm_password" type="password" required><button class="wp-org-password-toggle" type="button" aria-label="Tampilkan password" aria-pressed="false" data-show-label="Tampilkan password" data-hide-label="Sembunyikan password"><span class="wp-org-password-toggle-icon" aria-hidden="true"></span></button></div>';
+        echo '</div>';
+        echo '<div class="wp-org-actions"><button class="wp-org-button" type="submit" name="wp_org_account_password_submit" value="1">Perbarui Password</button></div>';
+        echo '</form>';
+        echo '</div>';
+        echo '<div class="wp-org-profile-section wp-org-danger-zone">';
+        echo '<div class="wp-org-section-heading"><div><h3>Hapus Akun</h3><p class="wp-org-muted">Tindakan ini permanen dan tidak bisa dibatalkan.</p></div></div>';
+        echo '<div class="wp-org-danger-zone-actions"><button class="wp-org-button wp-org-button-danger wp-org-open-modal" type="button" data-modal-target="wp_org_delete_account_modal">Hapus Akun</button></div>';
+        echo '<div id="wp_org_delete_account_modal" class="wp-org-modal" aria-hidden="true"><div class="wp-org-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="wp_org_delete_account_modal_title">';
+        echo '<div class="wp-org-modal-header"><div><p class="wp-org-modal-eyebrow">Danger Zone</p><h3 id="wp_org_delete_account_modal_title">Konfirmasi Hapus Akun</h3><p class="wp-org-muted">Akun dan akses login Anda akan dihapus permanen.</p></div><button type="button" class="wp-org-modal-close" aria-label="Tutup">&times;</button></div>';
+        echo '<div class="wp-org-delete-modal-note"><strong>Perlu diperhatikan:</strong> tindakan ini tidak dapat dibatalkan setelah dikonfirmasi.</div>';
+        echo '<form class="wp-org-grid wp-org-account-form wp-org-delete-account-form" method="post">';
+        wp_nonce_field('wp_org_account_delete_action', 'wp_org_account_delete_nonce');
+        echo '<div class="wp-org-field wp-org-account-field-wide">';
+        echo '<label class="wp-org-account-checkbox"><input id="wp_org_delete_account_confirm" name="delete_account_confirm" type="checkbox" value="1" required><span>Saya memahami akun akan dihapus permanen dan tidak dapat dipulihkan.</span></label>';
+        echo '</div>';
+        echo '<div class="wp-org-actions"><button class="wp-org-button wp-org-button-secondary wp-org-modal-close-inline" type="button">Batal</button><button class="wp-org-button wp-org-button-danger" type="submit" name="wp_org_account_delete_submit" value="1">Ya, Hapus Akun</button></div>';
+        echo '</form>';
+        echo '</div>';
+        echo '</div>';
+        echo '</div>';
+
+        return (string) ob_get_clean();
     }
 
     private function render_field($field, $value, Regions $regions)
