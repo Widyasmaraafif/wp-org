@@ -18,6 +18,7 @@ class AdminMenu
         add_action('admin_post_wp_org_import_subscribers', [$this, 'handle_import_subscribers']);
         add_action('admin_post_wp_org_save_payment_banks', [$this, 'handle_save_payment_banks']);
         add_action('admin_post_wp_org_save_member_card_settings', [$this, 'handle_save_member_card_settings']);
+        add_action('admin_post_wp_org_generate_pages', [$this, 'handle_generate_pages']);
         add_action('admin_post_wp_org_update_premium_status', [$this, 'handle_update_premium_status']);
         add_action('admin_post_wp_org_update_member_profile', [$this, 'handle_update_member_profile']);
     }
@@ -186,23 +187,29 @@ class AdminMenu
         $velocity_captcha = get_option('captcha_velocity', []);
         $captcha_enabled = !empty($velocity_captcha['aktif']);
         $captcha_provider = sanitize_text_field($velocity_captcha['provider'] ?? 'google');
+        $payment_banks = array_values((array) get_option('wp_org_payment_banks', []));
+        $login_redirect_page_id = !empty($general['login_redirect']) ? url_to_postid((string) $general['login_redirect']) : 0;
+
         $seed_message = isset($_GET['seeded']) ? absint($_GET['seeded']) : -1;
         $imported_subscribers = isset($_GET['imported_subscribers']) ? absint($_GET['imported_subscribers']) : -1;
+        $generated = isset($_GET['generated']) ? absint($_GET['generated']) : -1;
         $subscriber_count = count(get_users([
             'role' => 'subscriber',
             'fields' => 'ids',
         ]));
-        $payment_banks = array_values((array) get_option('wp_org_payment_banks', []));
         $member_card = get_option('wp_org_member_card_settings', []);
+        $definitions = $this->get_generate_page_definitions();
+        $page_settings = $this->get_generate_page_settings();
 
-        echo '<div class="wrap wp-org-admin"><div class="wp-org-admin-hero"><div><h1>Pengaturan WP Org</h1><p>Seluruh konfigurasi utama plugin dikumpulkan dalam panel yang lebih terstruktur.</p></div></div>';
-        echo '<nav class="nav-tab-wrapper wp-org-admin-tabs">';
+        echo '<div class="wrap wp-org-admin"><div class="wp-org-admin-hero"><div><h1>Pengaturan WP Org</h1><p>Seluruh konfigurasi plugin, generate data, kartu anggota, dan page shortcode ada dalam satu panel.</p></div></div>';
+        echo '<div class="wp-org-admin-tab-group"><nav class="nav-tab-wrapper wp-org-admin-tabs">';
         echo '<a href="' . esc_url(admin_url('admin.php?page=wp-org-settings&tab=general')) . '" class="nav-tab ' . ($active_tab === 'general' ? 'nav-tab-active' : '') . '">Umum</a>';
         echo '<a href="' . esc_url(admin_url('admin.php?page=wp-org-settings&tab=data')) . '" class="nav-tab ' . ($active_tab === 'data' ? 'nav-tab-active' : '') . '">Data</a>';
         echo '<a href="' . esc_url(admin_url('admin.php?page=wp-org-settings&tab=payment-banks')) . '" class="nav-tab ' . ($active_tab === 'payment-banks' ? 'nav-tab-active' : '') . '">Bank Pembayaran</a>';
         echo '<a href="' . esc_url(admin_url('admin.php?page=wp-org-settings&tab=member-card')) . '" class="nav-tab ' . ($active_tab === 'member-card' ? 'nav-tab-active' : '') . '">Kartu Anggota</a>';
+        echo '<a href="' . esc_url(admin_url('admin.php?page=wp-org-settings&tab=page')) . '" class="nav-tab ' . ($active_tab === 'page' ? 'nav-tab-active' : '') . '">Page</a>';
         echo '<a href="' . esc_url(admin_url('admin.php?page=wp-org-settings&tab=documentation')) . '" class="nav-tab ' . ($active_tab === 'documentation' ? 'nav-tab-active' : '') . '">Dokumentasi</a>';
-        echo '</nav>';
+        echo '</nav></div>';
 
         if ($active_tab === 'data') {
             if ($seed_message >= 0) {
@@ -230,7 +237,6 @@ class AdminMenu
             submit_button('Import / Update Subscriber', 'secondary');
             echo '</form></div>';
             echo '</div>';
-
             return;
         }
 
@@ -276,6 +282,47 @@ class AdminMenu
             echo '</td></tr>';
             echo '</tbody></table>';
             submit_button('Simpan Pengaturan Kartu');
+            echo '</form></div>';
+            return;
+        }
+
+        if ($active_tab === 'page') {
+            if ($generated >= 0) {
+                echo '<div class="notice notice-success is-dismissible"><p>Generate page selesai. ' . esc_html((string) $generated) . ' halaman dibuat atau diperbarui.</p></div>';
+            }
+
+            echo '<div class="wp-org-admin-card">';
+            echo '<h2>Daftar Halaman</h2>';
+            echo '<p class="description">Isi judul lalu pilih halaman yang sudah ada jika ingin memakai page manual. Jika belum pilih page, plugin akan membuat halaman baru dengan judul tersebut.</p>';
+            echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+            wp_nonce_field('wp_org_generate_pages');
+            echo '<input type="hidden" name="action" value="wp_org_generate_pages">';
+            echo '<div class="wp-org-admin-table-card"><table class="widefat striped wp-org-admin-table wp-org-generate-pages-table"><thead><tr><th>Fungsi</th><th>Judul</th><th>Select Page</th><th>Shortcode</th></tr></thead><tbody>';
+
+            foreach ($definitions as $definition) {
+                $config = $page_settings[$definition['key']] ?? [];
+                $selected_page_id = absint($config['page_id'] ?? 0);
+                $title = sanitize_text_field($config['title'] ?? $definition['title']);
+                echo '<tr>';
+                echo '<td><strong>' . esc_html($definition['label']) . '</strong><br><span class="wp-org-admin-subtle"><code>' . esc_html($definition['slug']) . '</code></span></td>';
+                echo '<td><input type="text" name="pages[' . esc_attr($definition['key']) . '][title]" value="' . esc_attr($title) . '" placeholder="Judul halaman"></td>';
+                echo '<td>';
+                wp_dropdown_pages([
+                    'name' => 'pages[' . $definition['key'] . '][page_id]',
+                    'selected' => $selected_page_id,
+                    'show_option_none' => 'Buat page baru',
+                    'option_none_value' => '0',
+                ]);
+                if ($selected_page_id > 0) {
+                    echo '<p class="description"><a href="' . esc_url(get_edit_post_link($selected_page_id)) . '">Edit page terpilih</a></p>';
+                }
+                echo '</td>';
+                echo '<td><code>' . esc_html($definition['shortcode']) . '</code></td>';
+                echo '</tr>';
+            }
+
+            echo '</tbody></table></div>';
+            submit_button('Generate Pages');
             echo '</form></div>';
             return;
         }
@@ -333,7 +380,15 @@ class AdminMenu
         echo '<tr><th scope="row">Butuh Approval Admin</th><td><input type="checkbox" name="general[require_approval]" value="1"' . checked(!empty($general['require_approval']), true, false) . '></td></tr>';
         echo '<tr><th scope="row">Daftar Anggota Publik</th><td><input type="checkbox" name="general[members_page_public]" value="1"' . checked(!empty($general['members_page_public']), true, false) . '></td></tr>';
         echo '<tr><th scope="row">Aktifkan Member Premium</th><td><input type="checkbox" name="general[premium_enabled]" value="1"' . checked(!empty($general['premium_enabled']) || !isset($general['premium_enabled']), true, false) . '><p class="description">Jika dimatikan, tab premium, form pengajuan, dan badge premium tidak akan ditampilkan ke member.</p></td></tr>';
-        echo '<tr><th scope="row">Login Redirect URL</th><td><input class="regular-text" type="url" name="general[login_redirect]" value="' . esc_attr($general['login_redirect'] ?? '') . '"></td></tr>';
+        echo '<tr><th scope="row">Login Redirect Page</th><td>';
+        wp_dropdown_pages([
+            'name' => 'general[login_redirect_page]',
+            'id' => 'wp-org-login-redirect-page',
+            'selected' => $login_redirect_page_id,
+            'show_option_none' => 'Pilih halaman',
+            'option_none_value' => '0',
+        ]);
+        echo '<p class="description">Pilih halaman tujuan setelah login. Kosongkan untuk kembali ke homepage.</p></td></tr>';
         echo '<tr><th scope="row">Captcha</th><td>';
         echo $captcha_enabled ? '<p>Tersambung ke velocity-addons dan saat ini aktif dengan provider <strong>' . esc_html($captcha_provider) . '</strong>.</p>' : '<p>Captcha mengikuti pengaturan plugin velocity-addons dan saat ini belum aktif.</p>';
         echo '<p><a class="button-secondary" href="' . esc_url(admin_url('admin.php?page=velocity_captcha_settings')) . '">Buka Pengaturan Captcha Velocity Addons</a></p>';
@@ -341,6 +396,18 @@ class AdminMenu
         echo '</tbody></table>';
         submit_button('Simpan Pengaturan');
         echo '</form></div>';
+    }
+
+    public function render_generate_page()
+    {
+        wp_safe_redirect(admin_url('admin.php?page=wp-org-settings&tab=data'));
+        exit;
+    }
+
+    public function render_generate_pages_page()
+    {
+        $_GET['tab'] = 'page';
+        $this->render_generate_page();
     }
 
     public function handle_member_status()
@@ -402,10 +469,62 @@ class AdminMenu
             'require_approval' => !empty($general['require_approval']) ? 1 : 0,
             'members_page_public' => !empty($general['members_page_public']) ? 1 : 0,
             'premium_enabled' => !empty($general['premium_enabled']) ? 1 : 0,
-            'login_redirect' => esc_url_raw($general['login_redirect'] ?? ''),
+            'login_redirect' => $this->get_login_redirect_url_from_settings($general),
         ]);
 
         wp_safe_redirect(admin_url('admin.php?page=wp-org-settings'));
+        exit;
+    }
+
+    public function handle_generate_pages()
+    {
+        if (!current_user_can('wp_org_manage_settings') || !check_admin_referer('wp_org_generate_pages')) {
+            wp_die('Permintaan tidak valid.');
+        }
+
+        $submitted_pages = isset($_POST['pages']) ? (array) wp_unslash($_POST['pages']) : [];
+        $stored_pages = [];
+        $processed = 0;
+
+        foreach ($this->get_generate_page_definitions() as $definition) {
+            $submitted = isset($submitted_pages[$definition['key']]) ? (array) $submitted_pages[$definition['key']] : [];
+            $page_id = isset($submitted['page_id']) ? absint($submitted['page_id']) : 0;
+            $title = sanitize_text_field($submitted['title'] ?? $definition['title']);
+
+            $stored_pages[$definition['key']] = [
+                'title' => $title !== '' ? $title : $definition['title'],
+                'page_id' => $page_id,
+            ];
+
+            $postarr = [
+                'post_title' => $title !== '' ? $title : $definition['title'],
+                'post_content' => $definition['shortcode'],
+                'post_status' => 'publish',
+                'post_type' => 'page',
+            ];
+
+            if ($page_id > 0) {
+                $existing_page = get_post($page_id);
+
+                if ($existing_page instanceof \WP_Post && $existing_page->post_type === 'page') {
+                    $postarr['ID'] = $page_id;
+                    wp_update_post($postarr);
+                    $processed++;
+                    continue;
+                }
+            }
+
+            $postarr['post_name'] = $definition['slug'];
+            $new_page_id = wp_insert_post($postarr);
+
+            if (!is_wp_error($new_page_id) && $new_page_id > 0) {
+                $stored_pages[$definition['key']]['page_id'] = $new_page_id;
+                $processed++;
+            }
+        }
+
+        update_option('wp_org_generated_pages', $stored_pages);
+        wp_safe_redirect(admin_url('admin.php?page=wp-org-settings&tab=page&generated=' . $processed));
         exit;
     }
 
@@ -729,6 +848,71 @@ class AdminMenu
         $html .= '</div></div></div>';
 
         return $html;
+    }
+
+    private function get_login_redirect_url_from_settings($general)
+    {
+        $page_id = isset($general['login_redirect_page']) ? absint($general['login_redirect_page']) : 0;
+
+        if ($page_id > 0) {
+            $permalink = get_permalink($page_id);
+
+            if ($permalink) {
+                return esc_url_raw($permalink);
+            }
+        }
+
+        return '';
+    }
+
+    private function get_generate_page_definitions()
+    {
+        return [
+            [
+                'key' => 'login',
+                'label' => 'Login',
+                'title' => 'Login',
+                'slug' => 'login',
+                'shortcode' => '[org_login]',
+            ],
+            [
+                'key' => 'profile',
+                'label' => 'Profile',
+                'title' => 'Profile',
+                'slug' => 'profile',
+                'shortcode' => '[org_profile]',
+            ],
+            [
+                'key' => 'members',
+                'label' => 'Anggota',
+                'title' => 'Anggota',
+                'slug' => 'anggota',
+                'shortcode' => '[org_members]',
+            ],
+            [
+                'key' => 'register',
+                'label' => 'Register',
+                'title' => 'Register',
+                'slug' => 'register',
+                'shortcode' => '[org_register]',
+            ],
+        ];
+    }
+
+    private function get_generate_page_settings()
+    {
+        $saved = get_option('wp_org_generated_pages', []);
+        $settings = [];
+
+        foreach ($this->get_generate_page_definitions() as $definition) {
+            $item = isset($saved[$definition['key']]) && is_array($saved[$definition['key']]) ? $saved[$definition['key']] : [];
+            $settings[$definition['key']] = [
+                'title' => sanitize_text_field($item['title'] ?? $definition['title']),
+                'page_id' => absint($item['page_id'] ?? 0),
+            ];
+        }
+
+        return $settings;
     }
 
     private function render_member_profile_section($user)
