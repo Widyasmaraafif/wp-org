@@ -107,7 +107,104 @@ class MemberData
 
     public static function get_member_number($user_id)
     {
-        return self::get_member_number_prefix() . '-' . str_pad((string) $user_id, 6, '0', STR_PAD_LEFT);
+        $number = get_user_meta($user_id, 'wp_org_member_number', true);
+        if (empty($number)) {
+            $status = self::get_status($user_id);
+            if ($status === 'approved') {
+                $number = self::assign_member_number($user_id);
+            } else {
+                return '-';
+            }
+        }
+        return self::get_member_number_prefix() . '-' . str_pad((string) $number, 6, '0', STR_PAD_LEFT);
+    }
+
+    public static function get_highest_member_number()
+    {
+        $users = get_users([
+            'role' => 'org_member',
+            'meta_key' => 'wp_org_member_number',
+            'orderby' => 'meta_value_num',
+            'order' => 'DESC',
+            'number' => 1,
+        ]);
+
+        if (empty($users)) {
+            return 0;
+        }
+
+        $highest = get_user_meta($users[0]->ID, 'wp_org_member_number', true);
+        return $highest ? (int) $highest : 0;
+    }
+
+    public static function assign_member_number($user_id)
+    {
+        $existing = get_user_meta($user_id, 'wp_org_member_number', true);
+        if (!empty($existing)) {
+            return $existing;
+        }
+        $user = get_userdata($user_id);
+        if (!$user || !in_array('org_member', $user->roles)) {
+            return $user_id;
+        }
+        $highest = self::get_highest_member_number();
+        $number = $highest + 1;
+        update_user_meta($user_id, 'wp_org_member_number', $number);
+        return $number;
+    }
+
+    public static function reset_member_numbers()
+    {
+        // First, delete all existing wp_org_member_number meta
+        $users = get_users([
+            'role' => 'org_member',
+            'orderby' => 'user_registered',
+            'order' => 'ASC',
+        ]);
+
+        foreach ($users as $user) {
+            delete_user_meta($user->ID, 'wp_org_member_number');
+        }
+
+        // Now reassign numbers starting from 1
+        $number = 1;
+        foreach ($users as $user) {
+            update_user_meta($user->ID, 'wp_org_member_number', $number);
+            $number++;
+        }
+    }
+
+    public static function backfill_member_numbers()
+    {
+        // First, get all org_member users, ordered by registration date (oldest first)
+        $users = get_users([
+            'role' => 'org_member',
+            'orderby' => 'user_registered',
+            'order' => 'ASC',
+        ]);
+
+        if (empty($users)) {
+            return;
+        }
+
+        $next_number = 1;
+        foreach ($users as $user) {
+            // Only assign number if user doesn't have one yet
+            if (!get_user_meta($user->ID, 'wp_org_member_number', true)) {
+                update_user_meta($user->ID, 'wp_org_member_number', $next_number);
+            }
+            $next_number++;
+        }
+    }
+
+    public static function handle_role_change($user_id, $role, $old_roles)
+    {
+        if ($role === 'org_member' && !in_array('org_member', $old_roles)) {
+            $status = self::get_status($user_id);
+            if ($status === 'approved') {
+                self::assign_member_number($user_id);
+            }
+        }
     }
 
     public static function save_profile_fields($user_id, $data)

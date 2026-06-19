@@ -24,6 +24,9 @@ class Plugin
 
         $menu_visibility = new \WpOrg\Support\MenuVisibility();
         $menu_visibility->register();
+
+        // Hook for role changes to assign member numbers
+        add_action('set_user_role', [\WpOrg\Support\MemberData::class, 'handle_role_change'], 10, 3);
     }
 
     private function load_admin()

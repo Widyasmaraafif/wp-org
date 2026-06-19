@@ -130,8 +130,14 @@ class Auth
         }
 
         MemberData::save_profile_fields($user_id, $_POST);
-        MemberData::update_status($user_id, $this->requires_approval() ? 'pending' : 'approved');
+        $status = $this->requires_approval() ? 'pending' : 'approved';
+        MemberData::update_status($user_id, $status);
         update_user_meta($user_id, 'wp_org_registered_at', current_time('mysql'));
+        
+        // Assign member number only if approved immediately
+        if ($status === 'approved') {
+            MemberData::assign_member_number($user_id);
+        }
 
         $message = $this->requires_approval() ? 'Pendaftaran berhasil dikirim dan menunggu approval admin.' : 'Pendaftaran berhasil. Anda dapat login.';
         $this->set_flash('success', $message);

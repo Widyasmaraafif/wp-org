@@ -8,6 +8,7 @@ class Installer
     {
         self::create_roles();
         self::seed_options();
+        \WpOrg\Support\MemberData::backfill_member_numbers();
     }
 
     private static function create_roles()

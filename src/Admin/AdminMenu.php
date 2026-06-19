@@ -22,6 +22,7 @@ class AdminMenu
         add_action('admin_post_wp_org_generate_pages', [$this, 'handle_generate_pages']);
         add_action('admin_post_wp_org_update_premium_status', [$this, 'handle_update_premium_status']);
         add_action('admin_post_wp_org_update_member_profile', [$this, 'handle_update_member_profile']);
+        add_action('admin_post_wp_org_reset_member_numbers', [$this, 'handle_reset_member_numbers']);
     }
 
     public function add_menu()
@@ -62,8 +63,6 @@ class AdminMenu
         $user_args = [
             'role__in' => ['org_member', 'org_admin'],
             'number' => -1,
-            'orderby' => 'registered',
-            'order' => 'DESC',
         ];
 
         if ($search !== '') {
@@ -82,6 +81,25 @@ class AdminMenu
         $total_anggota = $total_org_member + $total_org_admin;
 
         $users = get_users($user_args);
+
+        // Sort users: pending first, then by member number descending
+        usort($users, function($a, $b) {
+            $status_a = MemberData::get_status($a->ID);
+            $status_b = MemberData::get_status($b->ID);
+            
+            // Pending first
+            if ($status_a === 'pending' && $status_b !== 'pending') {
+                return -1;
+            }
+            if ($status_a !== 'pending' && $status_b === 'pending') {
+                return 1;
+            }
+            
+            // If same status, sort by member number descending
+            $num_a = (int) get_user_meta($a->ID, 'wp_org_member_number', true);
+            $num_b = (int) get_user_meta($b->ID, 'wp_org_member_number', true);
+            return $num_b - $num_a;
+        });
         $status_totals = array_fill_keys(array_keys($statuses), 0);
         $premium_totals = array_fill_keys(array_keys($premium_statuses), 0);
 
@@ -238,6 +256,10 @@ class AdminMenu
             if ($migrated_count >= 0) {
                 echo '<div class="notice notice-success is-dismissible"><p>Migrasi selesai. ' . esc_html((string) $migrated_count) . ' anggota lama berhasil diupdate menjadi role org_member.</p></div>';
             }
+            $reset = isset($_GET['reset']) ? absint($_GET['reset']) : -1;
+            if ($reset >= 0) {
+                echo '<div class="notice notice-success is-dismissible"><p>Nomor anggota berhasil direset dan ditetapkan ulang.</p></div>';
+            }
 
             $um_anggota_count = count(get_users([
                 'role' => 'um_anggota',
@@ -268,6 +290,14 @@ class AdminMenu
             wp_nonce_field('wp_org_migrate_old_members');
             echo '<input type="hidden" name="action" value="wp_org_migrate_old_members">';
             submit_button('Migrasi Anggota Lama', 'secondary');
+            echo '</form></div>';
+
+            echo '<div class="wp-org-admin-card"><h2>Reset Nomor Anggota</h2>';
+            echo '<p>Reset dan tetapkan nomor anggota secara berurutan berdasarkan tanggal pendaftaran (terlama pertama).</p>';
+            echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
+            wp_nonce_field('wp_org_reset_member_numbers');
+            echo '<input type="hidden" name="action" value="wp_org_reset_member_numbers">';
+            submit_button('Reset Nomor Anggota', 'delete');
             echo '</form></div>';
             echo '</div>';
             return;
@@ -453,8 +483,14 @@ class AdminMenu
 
         $status = isset($_POST['status']) ? sanitize_key(wp_unslash($_POST['status'])) : 'pending';
         $note = isset($_POST['admin_note']) ? sanitize_text_field(wp_unslash($_POST['admin_note'])) : '';
+        $old_status = MemberData::get_status($user_id);
         MemberData::update_status($user_id, $status);
         update_user_meta($user_id, 'wp_org_admin_note', $note);
+        
+        // Assign member number when status is changed to approved
+        if ($status === 'approved' && $old_status !== 'approved') {
+            MemberData::assign_member_number($user_id);
+        }
 
         wp_safe_redirect(admin_url('admin.php?page=wp-org'));
         exit;
@@ -1071,6 +1107,18 @@ class AdminMenu
         MemberData::save_profile_fields_with_definitions($user_id, $_POST, MemberData::get_all_registration_fields());
 
         wp_safe_redirect(admin_url('admin.php?page=wp-org'));
+        exit;
+    }
+
+    public function handle_reset_member_numbers()
+    {
+        if (!current_user_can('wp_org_manage_settings') || !check_admin_referer('wp_org_reset_member_numbers')) {
+            wp_die('Permintaan tidak valid.');
+        }
+
+        MemberData::reset_member_numbers();
+
+        wp_safe_redirect(admin_url('admin.php?page=wp-org-settings&tab=data&reset=1'));
         exit;
     }
 
