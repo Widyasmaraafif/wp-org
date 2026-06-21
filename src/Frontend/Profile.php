@@ -387,12 +387,41 @@ class Profile
             'organization_name' => sanitize_text_field($member_card_settings['organization_name'] ?? 'WP Org'),
             'background_url' => esc_url_raw($member_card_settings['background_url'] ?? ''),
             'logo_url' => esc_url_raw($member_card_settings['logo_url'] ?? ''),
+            'background_color_1' => $this->sanitize_color($member_card_settings['background_color_1'] ?? '#0f3d5e'),
+            'background_color_2' => $this->sanitize_color($member_card_settings['background_color_2'] ?? '#135e96'),
+            'background_color_3' => $this->sanitize_color($member_card_settings['background_color_3'] ?? '#2e84be'),
             'name' => $display_name,
             'number' => $member_number,
             'region' => $region ?: 'Indonesia',
             'issued_at' => mysql2date('d M Y', $issued_at),
             'filename' => 'kartu-anggota-' . strtolower(sanitize_title($display_name ?: (string) $user_id)) . '.pdf',
         ];
+    }
+
+    private function sanitize_color($color)
+    {
+        if (empty($color)) {
+            return '';
+        }
+        $color = trim($color);
+
+        // Allow 'transparent' keyword
+        if (strtolower($color) === 'transparent') {
+            return 'transparent';
+        }
+
+        // Allow hex colors (3, 6, or 8 digits with alpha)
+        if (preg_match('/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/', $color)) {
+            return $color;
+        }
+
+        // Allow rgb() and rgba()
+        if (preg_match('/^rgba?\s*\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*(,\s*(0?\.\d+|\d{1,2})\s*)?\)$/', $color)) {
+            return $color;
+        }
+
+        // Fallback to sanitize_hex_color for safety
+        return sanitize_hex_color($color);
     }
 
     /**
@@ -402,15 +431,33 @@ class Profile
     {
         $background_style = '';
         if (!empty($data['background_url'])) {
-            $background_style = 'style="background-image:url(' . esc_url($data['background_url']) . ');"';
+            $background_style = 'background-image:url(' . esc_url($data['background_url']) . ');';
         }
+
+        // Helper to fix transparent colors for preview
+        $fix_color = function($color, $default) {
+            if (empty($color) || strtolower($color) === 'transparent') {
+                return $default;
+            }
+            // Check for rgba with alpha exactly 0
+            if (preg_match('/rgba\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(0|0\.0+)\s*\)/', $color)) {
+                return $default;
+            }
+            return $color;
+        };
+
+        $color1 = $fix_color($data['background_color_1'] ?? '#0f3d5e', '#0f3d5e');
+        $color2 = $fix_color($data['background_color_2'] ?? '#135e96', '#135e96');
+        $color3 = $fix_color($data['background_color_3'] ?? '#2e84be', '#2e84be');
+
+        $gradient_style = 'background:' . $color1 . ';background-image:linear-gradient(135deg,' . $color2 . ' 0%,' . $color1 . ' 58%,' . $color3 . ' 100%);';
 
         $logo = '';
         if (!empty($data['logo_url'])) {
             $logo = '<img class="wp-org-member-card-logo" src="' . esc_url($data['logo_url']) . '" alt="Logo organisasi">';
         }
 
-        return '<div class="wp-org-member-card-preview" ' . $background_style . '>'
+        return '<div class="wp-org-member-card-preview" style="' . $background_style . $gradient_style . '">'
             . '<div class="wp-org-member-card-bg"></div>'
             . '<div class="wp-org-member-card-inner">'
             . $logo
@@ -481,11 +528,32 @@ class Profile
         $background_style = $background_data_uri !== '' ? 'background-image:url(' . $background_data_uri . ');' : '';
         $logo = $logo_data_uri !== '' ? '<img class="logo" src="' . $logo_data_uri . '" alt="Logo organisasi">' : '';
 
+        // Sanitize colors to avoid transparent issues with domPDF
+        $color1 = $data['background_color_1'] ?? '#0f3d5e';
+        $color2 = $data['background_color_2'] ?? '#135e96';
+        $color3 = $data['background_color_3'] ?? '#2e84be';
+
+        // Helper to fix only completely transparent colors for domPDF
+        $fix_color = function($color, $default) {
+            if (empty($color) || strtolower($color) === 'transparent') {
+                return $default;
+            }
+            // Check for rgba with alpha exactly 0
+            if (preg_match('/rgba\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*(0|0\.0+)\s*\)/', $color)) {
+                return $default;
+            }
+            return $color;
+        };
+
+        $color1 = $fix_color($color1, '#0f3d5e');
+        $color2 = $fix_color($color2, '#135e96');
+        $color3 = $fix_color($color3, '#2e84be');
+
         return '<!doctype html><html><head><meta charset="UTF-8"><style>'
             . '@page{size:85.6mm 53.98mm;margin:0}'
-            . 'body{margin:0;font-family:DejaVu Sans,Arial,sans-serif}'
-            . '.card{position:relative;width:85.6mm;height:53.98mm;overflow:hidden;color:#fff;background:#135e96;background-image:linear-gradient(135deg,#0f3d5e 0%,#135e96 58%,#2e84be 100%)}'
-            . '.bg{position:absolute;top:0;right:0;bottom:0;left:0;background-size:cover;background-position:center;opacity:.20;' . $background_style . '}'
+            . 'body{margin:0;font-family:DejaVu Sans,Arial,sans-serif;background:#fff}'
+            . '.card{position:relative;width:85.6mm;height:53.98mm;overflow:hidden;color:#fff;background:' . $color1 . ';background-image:linear-gradient(135deg,' . $color2 . ' 0%,' . $color1 . ' 58%,' . $color3 . ' 100%)}'
+            . '.bg{position:absolute;top:0;right:0;bottom:0;left:0;background-size:cover;background-position:center;opacity:0.9;' . $background_style . '}'
             . '.shade{position:absolute;top:0;right:0;bottom:0;left:0;background:rgba(6,24,38,.28)}'
             . '.ring-top{position:absolute;top:-10mm;right:-8mm;width:34mm;height:34mm;border-radius:17mm;background:rgba(255,255,255,.08)}'
             . '.ring-bottom{position:absolute;bottom:-14mm;left:-10mm;width:42mm;height:42mm;border-radius:21mm;background:rgba(255,255,255,.06)}'
@@ -500,7 +568,7 @@ class Profile
             . '.label{font-size:4.1pt;line-height:1.15;text-transform:uppercase;letter-spacing:.45px;color:#d8efff}'
             . '.value{color:#fff;word-wrap:break-word}'
             . '.number{font-size:7.8pt;font-weight:700;line-height:1.15;margin-top:.6mm}'
-            . '.name{font-size:11.8pt;font-weight:700;line-height:1.02;margin-top:.6mm}'
+            . '.name{font-size:7.8pt;font-weight:700;line-height:1.02;margin-top:.6mm}'
             . '.region{font-size:6.1pt;line-height:1.2;margin-top:.6mm}'
             . '.spacer{height:2.1mm}'
             . '.meta{background:rgba(255,255,255,.14);border:0.3mm solid rgba(255,255,255,.14);border-radius:2mm;padding:2.1mm 2.2mm}'

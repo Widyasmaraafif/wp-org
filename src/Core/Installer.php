@@ -59,6 +59,9 @@ class Installer
                 'member_number_prefix' => 'ORG',
                 'background_url' => '',
                 'logo_url' => '',
+                'background_color_1' => '#0f3d5e',
+                'background_color_2' => '#135e96',
+                'background_color_3' => '#2e84be',
             ]);
         }
     }

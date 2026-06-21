@@ -210,6 +210,11 @@ jQuery(function($) {
     reindexFieldRows();
     syncSortableState();
 
+    // Initialize color pickers with alpha support
+    $('.color-picker').wpColorPicker({
+        alpha: true
+    });
+
     $(document).on('click', '#wp-org-add-bank', function() {
         var $tbody = $('.wp-org-bank-table tbody');
         var nextIndex = parseInt($tbody.attr('data-next-index'), 10) || 0;

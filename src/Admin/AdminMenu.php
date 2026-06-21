@@ -343,6 +343,9 @@ class AdminMenu
             echo '<input class="regular-text" type="file" name="member_card_logo" accept="image/jpeg,image/png,image/webp,image/svg+xml">';
             echo '<p class="description">Upload logo organisasi. Kosongkan jika tidak ingin mengganti logo saat ini.</p>';
             echo '</td></tr>';
+            echo '<tr><th scope="row">Warna Background 1</th><td><input class="color-picker" type="text" name="member_card[background_color_1]" value="' . esc_attr($member_card['background_color_1'] ?? '#0f3d5e') . '" data-alpha-enabled="true" data-alpha-color-type="rgb"><p class="description">Warna pertama untuk gradient background kartu.</p></td></tr>';
+            echo '<tr><th scope="row">Warna Background 2</th><td><input class="color-picker" type="text" name="member_card[background_color_2]" value="' . esc_attr($member_card['background_color_2'] ?? '#135e96') . '" data-alpha-enabled="true" data-alpha-color-type="rgb"><p class="description">Warna kedua untuk gradient background kartu.</p></td></tr>';
+            echo '<tr><th scope="row">Warna Background 3</th><td><input class="color-picker" type="text" name="member_card[background_color_3]" value="' . esc_attr($member_card['background_color_3'] ?? '#2e84be') . '" data-alpha-enabled="true" data-alpha-color-type="rgb"><p class="description">Warna ketiga untuk gradient background kartu.</p></td></tr>';
             echo '</tbody></table>';
             submit_button('Simpan Pengaturan Kartu');
             echo '</form></div>';
@@ -657,12 +660,15 @@ class AdminMenu
             'svg' => 'image/svg+xml',
         ]);
 
-        update_option('wp_org_member_card_settings', [
-            'organization_name' => sanitize_text_field($member_card['organization_name'] ?? 'WP Org'),
-            'member_number_prefix' => sanitize_text_field($member_card['member_number_prefix'] ?? 'ORG'),
+        update_option('wp_org_member_card_settings', array_merge($existing, [
+            'organization_name' => sanitize_text_field($member_card['organization_name'] ?? $existing['organization_name'] ?? 'WP Org'),
+            'member_number_prefix' => sanitize_text_field($member_card['member_number_prefix'] ?? $existing['member_number_prefix'] ?? 'ORG'),
             'background_url' => $background_url,
             'logo_url' => $logo_url,
-        ]);
+            'background_color_1' => $this->sanitize_color($member_card['background_color_1'] ?? $existing['background_color_1'] ?? '#0f3d5e'),
+            'background_color_2' => $this->sanitize_color($member_card['background_color_2'] ?? $existing['background_color_2'] ?? '#135e96'),
+            'background_color_3' => $this->sanitize_color($member_card['background_color_3'] ?? $existing['background_color_3'] ?? '#2e84be'),
+        ]));
 
         wp_safe_redirect(admin_url('admin.php?page=wp-org-settings&tab=member-card'));
         exit;
@@ -689,6 +695,32 @@ class AdminMenu
         }
 
         return esc_url_raw($uploaded['url']);
+    }
+
+    private function sanitize_color($color)
+    {
+        if (empty($color)) {
+            return '';
+        }
+        $color = trim($color);
+
+        // Allow 'transparent' keyword
+        if (strtolower($color) === 'transparent') {
+            return 'transparent';
+        }
+
+        // Allow hex colors (3, 6, or 8 digits with alpha)
+        if (preg_match('/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/', $color)) {
+            return $color;
+        }
+
+        // Allow rgb() and rgba()
+        if (preg_match('/^rgba?\s*\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*(,\s*(0?\.\d+|\d{1,2})\s*)?\)$/', $color)) {
+            return $color;
+        }
+
+        // Fallback to sanitize_hex_color for safety
+        return sanitize_hex_color($color);
     }
 
     public function handle_seed_members()
@@ -1131,13 +1163,20 @@ class AdminMenu
         wp_enqueue_style(
             'wp-org-admin',
             WP_ORG_URL . 'assets/frontend/css/admin.css',
-            ['wp-admin'],
+            ['wp-admin', 'wp-color-picker'],
             WP_ORG_VERSION
+        );
+        wp_enqueue_script(
+            'wp-color-picker-alpha',
+            WP_ORG_URL . 'assets/frontend/js/wp-color-picker-alpha.js',
+            ['wp-color-picker'],
+            WP_ORG_VERSION,
+            true
         );
         wp_enqueue_script(
             'wp-org-admin',
             WP_ORG_URL . 'assets/frontend/js/admin.js',
-            ['jquery', 'jquery-ui-sortable'],
+            ['jquery', 'jquery-ui-sortable', 'wp-color-picker', 'wp-color-picker-alpha'],
             WP_ORG_VERSION,
             true
         );
