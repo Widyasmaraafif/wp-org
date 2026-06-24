@@ -20,6 +20,7 @@ class AdminMenu
         add_action('admin_post_wp_org_save_payment_banks', [$this, 'handle_save_payment_banks']);
         add_action('admin_post_wp_org_save_member_card_settings', [$this, 'handle_save_member_card_settings']);
         add_action('admin_post_wp_org_generate_pages', [$this, 'handle_generate_pages']);
+        add_action('admin_post_wp_org_save_page_settings', [$this, 'handle_save_page_settings']);
         add_action('admin_post_wp_org_update_premium_status', [$this, 'handle_update_premium_status']);
         add_action('admin_post_wp_org_update_member_profile', [$this, 'handle_update_member_profile']);
         add_action('admin_post_wp_org_reset_member_numbers', [$this, 'handle_reset_member_numbers']);
@@ -43,6 +44,21 @@ class AdminMenu
         $search = isset($_GET['member_search']) ? sanitize_text_field(wp_unslash($_GET['member_search'])) : '';
         $member_status_filter = isset($_GET['member_status']) ? sanitize_key(wp_unslash($_GET['member_status'])) : '';
         $premium_status_filter = isset($_GET['premium_status']) ? sanitize_key(wp_unslash($_GET['premium_status'])) : '';
+        $per_page = isset($_GET['per_page']) ? absint($_GET['per_page']) : 25;
+        $paged = isset($_GET['paged']) ? absint($_GET['paged']) : 1;
+        $sort_by = isset($_GET['sort_by']) ? sanitize_key(wp_unslash($_GET['sort_by'])) : 'member_number';
+        $sort_order = isset($_GET['sort_order']) ? sanitize_key(wp_unslash($_GET['sort_order'])) : 'desc';
+        $per_page_options = [25, 50, 100];
+        $sortable_columns = ['nama', 'member_number', 'tanggal_daftar'];
+        if (!in_array($per_page, $per_page_options, true)) {
+            $per_page = 25;
+        }
+        if (!in_array($sort_by, $sortable_columns, true)) {
+            $sort_by = 'member_number';
+        }
+        if (!in_array($sort_order, ['asc', 'desc'], true)) {
+            $sort_order = 'desc';
+        }
         $statuses = MemberData::get_all_statuses();
         $premium_statuses = MemberData::get_premium_statuses();
         $meta_query = [];
@@ -81,14 +97,13 @@ class AdminMenu
         $total_org_admin = isset($count_users['avail_roles']['org_admin']) ? $count_users['avail_roles']['org_admin'] : 0;
         $total_anggota = $total_org_member + $total_org_admin;
 
-        $users = get_users($user_args);
+        $all_users = get_users($user_args);
 
-        // Sort users: pending first, then by member number descending
-        usort($users, function($a, $b) {
+        // Sort users
+        usort($all_users, function($a, $b) use ($sort_by, $sort_order) {
+            // First sort by pending status
             $status_a = MemberData::get_status($a->ID);
             $status_b = MemberData::get_status($b->ID);
-            
-            // Pending first
             if ($status_a === 'pending' && $status_b !== 'pending') {
                 return -1;
             }
@@ -96,19 +111,33 @@ class AdminMenu
                 return 1;
             }
             
-            // If same status, sort by member number descending
-            $num_a = (int) get_user_meta($a->ID, 'wp_org_member_number', true);
-            $num_b = (int) get_user_meta($b->ID, 'wp_org_member_number', true);
-            return $num_b - $num_a;
+            // Then sort by selected column
+            $order_multiplier = ($sort_order === 'asc') ? 1 : -1;
+            
+            switch ($sort_by) {
+                case 'nama':
+                    $name_a = (string) get_user_meta($a->ID, 'wp_org_full_name', true);
+                    $name_b = (string) get_user_meta($b->ID, 'wp_org_full_name', true);
+                    if ($name_a === '') $name_a = $a->display_name;
+                    if ($name_b === '') $name_b = $b->display_name;
+                    return strcasecmp($name_a, $name_b) * $order_multiplier;
+                    
+                case 'tanggal_daftar':
+                    $date_a = strtotime(get_user_meta($a->ID, 'wp_org_registered_at', true) ?: $a->user_registered);
+                    $date_b = strtotime(get_user_meta($b->ID, 'wp_org_registered_at', true) ?: $b->user_registered);
+                    return ($date_a - $date_b) * $order_multiplier;
+                    
+                case 'member_number':
+                default:
+                    $num_a = (int) get_user_meta($a->ID, 'wp_org_member_number', true);
+                    $num_b = (int) get_user_meta($b->ID, 'wp_org_member_number', true);
+                    return ($num_a - $num_b) * $order_multiplier;
+            }
         });
         $status_totals = array_fill_keys(array_keys($statuses), 0);
         $premium_totals = array_fill_keys(array_keys($premium_statuses), 0);
 
-        // Get all users without limit for calculating status totals
-        $all_users_args = $user_args;
-        $all_users_args['number'] = -1;
-        $all_users = get_users($all_users_args);
-
+        // Calculate totals
         foreach ($all_users as $user) {
             $member_status = MemberData::get_status($user->ID);
             $premium_status = MemberData::get_premium_status($user->ID);
@@ -121,6 +150,34 @@ class AdminMenu
                 $premium_totals[$premium_status]++;
             }
         }
+
+        // Get paginated users
+        $total_filtered = count($all_users);
+        $offset = ($paged - 1) * $per_page;
+        $users = array_slice($all_users, $offset, $per_page);
+
+        // Helper function to get sort URL
+        $get_sort_url = function($column) use ($search, $member_status_filter, $premium_status_filter, $per_page, $sort_by, $sort_order) {
+            $new_order = ($sort_by === $column && $sort_order === 'asc') ? 'desc' : 'asc';
+            $args = [
+                'page' => 'wp-org',
+                'member_search' => $search,
+                'member_status' => $member_status_filter,
+                'premium_status' => $premium_status_filter,
+                'per_page' => $per_page,
+                'sort_by' => $column,
+                'sort_order' => $new_order,
+            ];
+            return esc_url(add_query_arg($args, admin_url('admin.php')));
+        };
+
+        // Helper function to get sort indicator
+        $get_sort_indicator = function($column) use ($sort_by, $sort_order) {
+            if ($sort_by !== $column) {
+                return '';
+            }
+            return $sort_order === 'asc' ? '&uarr;' : '&darr;';
+        };
 
         echo '<div class="wrap wp-org-admin">';
         echo '<div class="wp-org-admin-hero"><div><h1>Data Anggota</h1><p>Kelola status pendaftaran, premium membership, dan catatan internal anggota dalam satu tampilan.</p></div></div>';
@@ -135,20 +192,37 @@ class AdminMenu
         echo '<input type="hidden" name="page" value="wp-org">';
         echo '<div class="wp-org-admin-filters-grid">';
         echo '<label class="wp-org-admin-filter-field"><span>Cari Anggota</span><input type="text" name="member_search" value="' . esc_attr($search) . '" placeholder="Nama, email, atau username"></label>';
-        echo '<label class="wp-org-admin-filter-field"><span>Status Anggota</span><select name="member_status"><option value="">Semua status</option>';
+        echo '<label class="wp-org-admin-filter-field"><span>Status Anggota</span><div class="wp-org-admin-select-wrapper"><select name="member_status"><option value="">Semua status</option>';
         foreach ($statuses as $status_key => $status_label) {
             echo '<option value="' . esc_attr($status_key) . '"' . selected($member_status_filter, $status_key, false) . '>' . esc_html($status_label) . '</option>';
         }
-        echo '</select></label>';
-        echo '<label class="wp-org-admin-filter-field"><span>Status Premium</span><select name="premium_status"><option value="">Semua premium</option>';
+        echo '</select></div></label>';
+        echo '<label class="wp-org-admin-filter-field"><span>Status Premium</span><div class="wp-org-admin-select-wrapper"><select name="premium_status"><option value="">Semua premium</option>';
         foreach ($premium_statuses as $premium_key => $premium_label) {
             echo '<option value="' . esc_attr($premium_key) . '"' . selected($premium_status_filter, $premium_key, false) . '>' . esc_html($premium_label) . '</option>';
         }
-        echo '</select></label>';
+        echo '</select></div></label>';
         echo '</div>';
-        echo '<div class="wp-org-admin-filter-actions"><button type="submit" class="button button-primary">Filter</button><a class="button button-secondary" href="' . esc_url(admin_url('admin.php?page=wp-org')) . '">Reset</a></div>';
+        echo '<div class="wp-org-admin-filter-actions">';
+        echo '<label class="wp-org-admin-filter-field" style="display: flex; align-items: center; gap: 8px; margin-right: auto;"><span>Per Halaman</span><div class="wp-org-admin-select-wrapper"><select name="per_page" onchange="this.form.submit()">';
+        foreach ($per_page_options as $option) {
+            echo '<option value="' . esc_attr($option) . '"' . selected($per_page, $option, false) . '>' . esc_html($option) . '</option>';
+        }
+        echo '</select></div></label>';
+        echo '<button type="submit" class="button button-primary">Filter</button><a class="button button-secondary" href="' . esc_url(admin_url('admin.php?page=wp-org')) . '">Reset</a>';
+        echo '</div>';
         echo '</form></div>';
-        echo '<div class="wp-org-admin-card wp-org-admin-table-card"><table class="widefat striped wp-org-admin-table"><thead><tr><th>Nama</th><th>No. Anggota</th><th>Email</th><th>Wilayah</th><th>Status</th><th>Premium</th><th>Tanggal Daftar</th><th>Catatan Admin</th><th>Aksi</th></tr></thead><tbody>';
+        echo '<div class="wp-org-admin-card wp-org-admin-table-card"><table class="widefat striped wp-org-admin-table"><thead><tr>';
+        echo '<th><a href="' . $get_sort_url('nama') . '" class="wp-org-admin-sort-link">Nama ' . $get_sort_indicator('nama') . '</a></th>';
+        echo '<th><a href="' . $get_sort_url('member_number') . '" class="wp-org-admin-sort-link">No. Anggota ' . $get_sort_indicator('member_number') . '</a></th>';
+        echo '<th>Email</th>';
+        echo '<th>Wilayah</th>';
+        echo '<th>Status</th>';
+        echo '<th>Premium</th>';
+        echo '<th><a href="' . $get_sort_url('tanggal_daftar') . '" class="wp-org-admin-sort-link">Tanggal Daftar ' . $get_sort_indicator('tanggal_daftar') . '</a></th>';
+        echo '<th>Catatan Admin</th>';
+        echo '<th>Aksi</th>';
+        echo '</tr></thead><tbody>';
 
         if (!$users) {
             echo '<tr><td colspan="9">Belum ada anggota.</td></tr>';
@@ -169,7 +243,36 @@ class AdminMenu
             echo '<tr><td><strong>' . esc_html($full_name) . '</strong></td><td><code>' . esc_html($member_number) . '</code></td><td><a href="mailto:' . esc_attr($user->user_email) . '">' . esc_html($user->user_email) . '</a></td><td>' . ($region !== '' ? esc_html($region) : '<span class="wp-org-admin-subtle">Belum diisi</span>') . '</td><td><span class="wp-org-admin-badge wp-org-admin-badge-' . esc_attr($status) . '">' . esc_html($statuses[$status] ?? $status) . '</span></td><td><span class="wp-org-admin-badge wp-org-admin-badge-premium-' . esc_attr($premium_status) . '">' . esc_html($premium_statuses[$premium_status] ?? $premium_status) . '</span>' . ($premium_ref ? '<br><small class="wp-org-admin-subtle">' . esc_html($premium_ref) . '</small>' : '') . ($premium_proof_url ? '<br><a class="wp-org-admin-link" href="' . esc_url($premium_proof_url) . '" target="_blank" rel="noopener">Lihat Bukti</a>' : '') . '</td><td>' . esc_html(get_user_meta($user->ID, 'wp_org_registered_at', true) ?: $user->user_registered) . '</td><td>' . ($note ? esc_html($note) : '<span class="wp-org-admin-subtle">Belum ada catatan</span>') . '</td><td><button type="button" class="button button-secondary wp-org-admin-open-modal" data-modal-target="wp-org-member-modal-' . esc_attr((string) $user->ID) . '">Kelola</button>' . $this->render_member_action_modal($user, $statuses, $status, $note, $premium_statuses, $premium_status) . '</td></tr>';
         }
 
-        echo '</tbody></table></div>';
+        echo '</tbody></table>';
+
+        // Add pagination
+        if ($total_filtered > $per_page) {
+            $total_pages = ceil($total_filtered / $per_page);
+            $base_url = admin_url('admin.php?page=wp-org');
+            $pagination_args = [
+                'paged' => '%#%',
+                'member_search' => $search,
+                'member_status' => $member_status_filter,
+                'premium_status' => $premium_status_filter,
+                'per_page' => $per_page,
+                'sort_by' => $sort_by,
+                'sort_order' => $sort_order,
+            ];
+            $pagination_links = paginate_links([
+                'base' => add_query_arg($pagination_args, $base_url),
+                'format' => '',
+                'current' => $paged,
+                'total' => $total_pages,
+                'prev_text' => '&laquo;',
+                'next_text' => '&raquo;',
+                'type' => 'list',
+            ]);
+            if ($pagination_links) {
+                echo '<div class="wp-org-admin-pagination">' . $pagination_links . '</div>';
+            }
+        }
+
+        echo '</div>';
     }
 
     public function render_fields_page()
@@ -357,13 +460,18 @@ class AdminMenu
             if ($generated >= 0) {
                 echo '<div class="notice notice-success is-dismissible"><p>Generate page selesai. ' . esc_html((string) $generated) . ' halaman dibuat atau diperbarui.</p></div>';
             }
+            $saved = isset($_GET['saved']) ? absint($_GET['saved']) : -1;
+            if ($saved >= 0) {
+                echo '<div class="notice notice-success is-dismissible"><p>Pengaturan halaman berhasil disimpan.</p></div>';
+            }
 
             echo '<div class="wp-org-admin-card">';
             echo '<h2>Daftar Halaman</h2>';
             echo '<p class="description">Isi judul lalu pilih halaman yang sudah ada jika ingin memakai page manual. Jika belum pilih page, plugin akan membuat halaman baru dengan judul tersebut.</p>';
-            echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">';
-            wp_nonce_field('wp_org_generate_pages');
-            echo '<input type="hidden" name="action" value="wp_org_generate_pages">';
+            echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" id="wp-org-page-form">';
+            wp_nonce_field('wp_org_save_page_settings');
+            wp_nonce_field('wp_org_generate_pages', '_wpnonce_generate');
+            echo '<input type="hidden" name="action" value="wp_org_save_page_settings" id="wp-org-page-action">';
             echo '<div class="wp-org-admin-table-card"><table class="widefat striped wp-org-admin-table wp-org-generate-pages-table"><thead><tr><th>Fungsi</th><th>Judul</th><th>Select Page</th><th>Shortcode</th></tr></thead><tbody>';
 
             foreach ($definitions as $definition) {
@@ -389,8 +497,27 @@ class AdminMenu
             }
 
             echo '</tbody></table></div>';
-            submit_button('Generate Pages');
-            echo '</form></div>';
+            echo '<div class="wp-org-admin-note" style="margin-top: 15px;">';
+            echo '<strong>Penjelasan tombol:</strong><br>';
+            echo '<strong>Generate Pages:</strong> Membuat atau memperbarui halaman WordPress beserta konten shortcode sesuai pengaturan.<br>';
+            echo '<strong>Simpan Pengaturan:</strong> Hanya menyimpan pengaturan judul dan halaman yang dipilih tanpa mengubah halaman WordPress.';
+            echo '</div>';
+            echo '<p style="margin-top: 20px;">';
+            submit_button('Generate Pages', 'secondary', 'submit_generate', false);
+            echo ' ';
+            submit_button('Simpan Pengaturan', 'primary', 'submit_save', false);
+            echo '</p>';
+            echo '</form>';
+            echo '<script>
+                document.getElementById("wp-org-page-form").addEventListener("click", function(e) {
+                    if (e.target.name === "submit_save") {
+                        document.getElementById("wp-org-page-action").value = "wp_org_save_page_settings";
+                    } else if (e.target.name === "submit_generate") {
+                        document.getElementById("wp-org-page-action").value = "wp_org_generate_pages";
+                    }
+                });
+            </script>';
+            echo '</div>';
             return;
         }
 
@@ -551,7 +678,7 @@ class AdminMenu
 
     public function handle_generate_pages()
     {
-        if (!current_user_can('wp_org_manage_settings') || !check_admin_referer('wp_org_generate_pages')) {
+        if (!current_user_can('wp_org_manage_settings') || !check_admin_referer('wp_org_generate_pages', '_wpnonce_generate')) {
             wp_die('Permintaan tidak valid.');
         }
 
@@ -598,6 +725,31 @@ class AdminMenu
 
         update_option('wp_org_generated_pages', $stored_pages);
         wp_safe_redirect(admin_url('admin.php?page=wp-org-settings&tab=page&generated=' . $processed));
+        exit;
+    }
+
+    public function handle_save_page_settings()
+    {
+        if (!current_user_can('wp_org_manage_settings') || !check_admin_referer('wp_org_save_page_settings')) {
+            wp_die('Permintaan tidak valid.');
+        }
+
+        $submitted_pages = isset($_POST['pages']) ? (array) wp_unslash($_POST['pages']) : [];
+        $stored_pages = [];
+
+        foreach ($this->get_generate_page_definitions() as $definition) {
+            $submitted = isset($submitted_pages[$definition['key']]) ? (array) $submitted_pages[$definition['key']] : [];
+            $page_id = isset($submitted['page_id']) ? absint($submitted['page_id']) : 0;
+            $title = sanitize_text_field($submitted['title'] ?? $definition['title']);
+
+            $stored_pages[$definition['key']] = [
+                'title' => $title !== '' ? $title : $definition['title'],
+                'page_id' => $page_id,
+            ];
+        }
+
+        update_option('wp_org_generated_pages', $stored_pages);
+        wp_safe_redirect(admin_url('admin.php?page=wp-org-settings&tab=page&saved=1'));
         exit;
     }
 
